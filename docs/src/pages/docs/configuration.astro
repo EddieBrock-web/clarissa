@@ -2,62 +2,113 @@
 import Docs from '../../layouts/Docs.astro';
 ---
 
-<Docs title="Configuration" description="Configure Clarissa with environment variables and settings">
+<Docs title="Configuration" description="Configure Clarissa with a config file or environment variables">
   <h1>Configuration</h1>
   <p>
-    Clarissa is configured primarily through environment variables. The only required setting 
-    is your OpenRouter API key.
+    Clarissa can be configured via a config file or environment variables.
+    The only required setting is your OpenRouter API key.
   </p>
 
   <h2>API Key Setup</h2>
   <p>
-    Set your <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter API key</a> 
-    as an environment variable:
+    Get your API key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a>.
   </p>
+
+  <h3>Option 1: Config File (Recommended)</h3>
+  <p>Create a config file at <code>~/.clarissa/config.json</code>:</p>
+  <pre><code>mkdir -p ~/.clarissa
+echo '{{"apiKey": "your_api_key_here"}}' > ~/.clarissa/config.json</code></pre>
+
+  <h3>Option 2: Environment Variable</h3>
+  <p>Set your API key as an environment variable:</p>
   <pre><code>export OPENROUTER_API_KEY=your_api_key_here</code></pre>
-  
-  <p>To make this permanent, add it to your shell configuration file:</p>
-  
-  <h3>Bash (~/.bashrc or ~/.bash_profile)</h3>
-  <pre><code>echo 'export OPENROUTER_API_KEY=your_api_key_here' >> ~/.bashrc
-source ~/.bashrc</code></pre>
+  <p>To make this permanent, add it to your shell configuration file (~/.zshrc or ~/.bashrc).</p>
 
-  <h3>Zsh (~/.zshrc)</h3>
-  <pre><code>echo 'export OPENROUTER_API_KEY=your_api_key_here' >> ~/.zshrc
-source ~/.zshrc</code></pre>
-
-  <h2>Environment Variables</h2>
+  <h2>Configuration Options</h2>
+  <p>Settings can be specified in the config file or as environment variables. Environment variables take precedence.</p>
   <table>
     <thead>
       <tr>
-        <th>Variable</th>
+        <th>Config Key</th>
+        <th>Env Variable</th>
         <th>Default</th>
         <th>Description</th>
       </tr>
     </thead>
     <tbody>
       <tr>
+        <td><code>apiKey</code></td>
         <td><code>OPENROUTER_API_KEY</code></td>
         <td>(required)</td>
         <td>Your OpenRouter API key</td>
       </tr>
       <tr>
+        <td><code>model</code></td>
         <td><code>OPENROUTER_MODEL</code></td>
         <td><code>anthropic/claude-sonnet-4</code></td>
         <td>Default model to use</td>
       </tr>
       <tr>
+        <td><code>maxIterations</code></td>
         <td><code>MAX_ITERATIONS</code></td>
         <td><code>10</code></td>
         <td>Maximum tool execution iterations per request</td>
       </tr>
       <tr>
+        <td><code>debug</code></td>
         <td><code>DEBUG</code></td>
         <td><code>false</code></td>
         <td>Enable debug logging</td>
       </tr>
     </tbody>
   </table>
+
+  <h3>Example Config File</h3>
+  <pre><code set:html={`{
+  "apiKey": "sk-or-...",
+  "model": "anthropic/claude-sonnet-4",
+  "maxIterations": 10,
+  "debug": false,
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    }
+  }
+}`} /></pre>
+
+  <h3>MCP Servers</h3>
+  <p>
+    Configure MCP (Model Context Protocol) servers to extend Clarissa with additional tools.
+    Servers defined in <code>mcpServers</code> are automatically loaded on startup.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Property</th>
+        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>command</code></td>
+        <td>string</td>
+        <td>Command to run the MCP server</td>
+      </tr>
+      <tr>
+        <td><code>args</code></td>
+        <td>string[]</td>
+        <td>Arguments to pass to the command</td>
+      </tr>
+      <tr>
+        <td><code>env</code></td>
+        <td>object</td>
+        <td>Environment variables for the server</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Use <code>/mcp</code> to view connected servers and <code>/tools</code> to see available tools.</p>
 
   <h2>Available Models</h2>
   <p>
@@ -119,6 +170,10 @@ source ~/.zshrc</code></pre>
       </tr>
     </thead>
     <tbody>
+      <tr>
+        <td><code>~/.clarissa/config.json</code></td>
+        <td>Configuration file (API key, model, etc.)</td>
+      </tr>
       <tr>
         <td><code>~/.clarissa/sessions/</code></td>
         <td>Saved conversation sessions (JSON files)</td>

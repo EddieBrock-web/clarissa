@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { Spinner, ConfirmInput, Alert } from "@inkjs/ui";
 import { Agent } from "../agent.ts";
@@ -75,6 +75,39 @@ export function App() {
     }
   }, [pendingConfirmation]);
 
+  // Load configured MCP servers on startup
+  useEffect(() => {
+    const loadMcpServers = async () => {
+      const configuredServers = mcpClient.getConfiguredServers();
+      if (Object.keys(configuredServers).length === 0) return;
+
+      const results = await mcpClient.loadConfiguredServers();
+      const successful = results.filter(r => !r.error);
+      const failed = results.filter(r => r.error);
+
+      // Register tools from successful connections
+      for (const result of successful) {
+        toolRegistry.registerMany(result.tools);
+      }
+
+      // Show status message
+      if (successful.length > 0 || failed.length > 0) {
+        let content = "";
+        if (successful.length > 0) {
+          const totalTools = successful.reduce((sum, r) => sum + r.tools.length, 0);
+          content += `Loaded ${successful.length} MCP server${successful.length > 1 ? "s" : ""} (${totalTools} tools)`;
+        }
+        if (failed.length > 0) {
+          if (content) content += "\n";
+          content += `Failed to load: ${failed.map(f => `${f.name} (${f.error})`).join(", ")}`;
+        }
+        setMessages(prev => [...prev, { role: "system", content }]);
+      }
+    };
+
+    loadMcpServers();
+  }, []);
+
   // Clear input by incrementing key to force re-mount
   const clearInput = useCallback(() => {
     setInputKey((k) => k + 1);
@@ -113,6 +146,7 @@ export function App() {
   /memories         - List saved memories
   /forget <#|ID>    - Forget a memory
   /model [NAME]     - Show or switch model
+  /mcp              - Show MCP server status
   /mcp CMD ARGS     - Connect to MCP server
   /tools            - List available tools
   /context          - Show context window usage
@@ -256,6 +290,42 @@ Keyboard Shortcuts:
           const msg = error instanceof Error ? error.message : "Delete failed";
           setMessages((prev) => [...prev, { role: "error", content: msg }]);
         }
+        clearInput();
+        return;
+      }
+
+      if (value.toLowerCase() === "/mcp") {
+        // Show MCP status
+        const connectedServers = mcpClient.getServerInfo();
+        const configuredServers = mcpClient.getConfiguredServers();
+        const configuredNames = Object.keys(configuredServers);
+
+        let content = "MCP Servers:\n";
+
+        if (connectedServers.length === 0 && configuredNames.length === 0) {
+          content += "  No MCP servers configured or connected.\n\n";
+          content += "To add servers, edit ~/.clarissa/config.json:\n";
+          content += '  {"mcpServers": {"name": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"]}}}\n\n';
+          content += "Or connect manually:\n  /mcp <command> [args...]";
+        } else {
+          if (connectedServers.length > 0) {
+            content += "\nConnected:\n";
+            for (const server of connectedServers) {
+              content += `  - ${server.name} (${server.toolCount} tools)\n`;
+            }
+          }
+
+          const disconnected = configuredNames.filter(n => !connectedServers.some(s => s.name === n));
+          if (disconnected.length > 0) {
+            content += "\nConfigured (not connected):\n";
+            for (const name of disconnected) {
+              const cfg = configuredServers[name];
+              content += `  - ${name}: ${cfg?.command} ${cfg?.args?.join(" ") || ""}\n`;
+            }
+          }
+        }
+
+        setMessages((prev) => [...prev, { role: "system", content }]);
         clearInput();
         return;
       }

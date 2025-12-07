@@ -1,8 +1,7 @@
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
-  site: 'https://cameronrye.github.io',
-  base: '/clarissa/',
+  site: 'https://clarissa.run',
   trailingSlash: 'always',
   build: {
     assets: '_assets'

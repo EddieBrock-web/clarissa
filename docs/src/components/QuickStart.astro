@@ -5,12 +5,12 @@ const steps = [
   {
     number: '1',
     title: 'Install Clarissa',
-    code: 'pnpm install -g clarissa'
+    code: 'bun install -g clarissa'
   },
   {
     number: '2',
     title: 'Set your API key',
-    code: 'export OPENROUTER_API_KEY=your_key_here'
+    code: 'mkdir -p ~/.clarissa && echo \'{"apiKey": "your_key"}\' > ~/.clarissa/config.json'
   },
   {
     number: '3',

@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "../tools/base.ts";
 import { z } from "zod";
+import { getMcpServers, type MCPServerFileConfig } from "../config/index.ts";
 
 /**
  * Convert JSON Schema to Zod schema
@@ -209,6 +210,48 @@ class MCPClientManager {
    */
   getConnectedServers(): string[] {
     return Array.from(this.connections.keys());
+  }
+
+  /**
+   * Get server info with tool count
+   */
+  getServerInfo(): Array<{ name: string; toolCount: number }> {
+    return Array.from(this.connections.entries()).map(([name, conn]) => ({
+      name,
+      toolCount: conn.tools.length,
+    }));
+  }
+
+  /**
+   * Get configured servers from config file
+   */
+  getConfiguredServers(): Record<string, MCPServerFileConfig> {
+    return getMcpServers();
+  }
+
+  /**
+   * Load all MCP servers from config file
+   */
+  async loadConfiguredServers(): Promise<{ name: string; tools: Tool[]; error?: string }[]> {
+    const servers = getMcpServers();
+    const results: { name: string; tools: Tool[]; error?: string }[] = [];
+
+    for (const [name, serverConfig] of Object.entries(servers)) {
+      try {
+        const tools = await this.connect({
+          name,
+          command: serverConfig.command,
+          args: serverConfig.args,
+          env: serverConfig.env,
+        });
+        results.push({ name, tools });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Connection failed";
+        results.push({ name, tools: [], error: msg });
+      }
+    }
+
+    return results;
   }
 
   /**

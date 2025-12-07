@@ -1,4 +1,43 @@
 import { z } from "zod";
+import { homedir } from "os";
+import { join } from "path";
+
+const CONFIG_DIR = join(homedir(), ".clarissa");
+const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+
+/**
+ * MCP server configuration schema (standard MCP JSON format)
+ */
+const mcpServerSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+export type MCPServerFileConfig = z.infer<typeof mcpServerSchema>;
+
+/**
+ * Config file schema
+ */
+const configFileSchema = z.object({
+  apiKey: z.string().min(1).optional(),
+  model: z.string().optional(),
+  maxIterations: z.number().int().positive().optional(),
+  debug: z.boolean().optional(),
+  mcpServers: z.record(z.string(), mcpServerSchema).optional(),
+});
+
+type ConfigFile = z.infer<typeof configFileSchema>;
+
+// Store loaded MCP servers config for access by other modules
+let loadedMcpServers: Record<string, MCPServerFileConfig> = {};
+
+/**
+ * Get configured MCP servers from config file
+ */
+export function getMcpServers(): Record<string, MCPServerFileConfig> {
+  return loadedMcpServers;
+}
 
 /**
  * Environment configuration schema with Zod validation
@@ -26,6 +65,47 @@ export type EnvConfig = z.infer<typeof envSchema>;
 const isTestEnv = process.env.NODE_ENV === "test" || typeof Bun !== "undefined" && Bun.env.BUN_ENV === "test" || process.argv.some(arg => arg.includes("bun") && arg.includes("test"));
 
 /**
+ * Load config from ~/.clarissa/config.json
+ */
+function loadConfigFile(): ConfigFile | null {
+  try {
+    const file = Bun.file(CONFIG_FILE);
+    if (!file.size) return null;
+    const content = require(CONFIG_FILE);
+    const result = configFileSchema.safeParse(content);
+    if (result.success) {
+      // Store MCP servers for later access
+      loadedMcpServers = result.data.mcpServers || {};
+      return result.data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Show setup instructions when API key is missing
+ */
+function showSetupInstructions(): never {
+  console.error(`
+Missing API key. To get started:
+
+1. Get an API key from https://openrouter.ai/keys
+
+2. Create config file at ${CONFIG_FILE}:
+
+   mkdir -p ${CONFIG_DIR}
+   echo '{"apiKey": "your_api_key_here"}' > ${CONFIG_FILE}
+
+   Or set as environment variable:
+
+   export OPENROUTER_API_KEY=your_api_key_here
+`);
+  process.exit(1);
+}
+
+/**
  * Validate and parse environment variables
  */
 function loadConfig(): EnvConfig {
@@ -41,18 +121,21 @@ function loadConfig(): EnvConfig {
     };
   }
 
-  const result = envSchema.safeParse(process.env);
+  // Load config file and merge with environment
+  const fileConfig = loadConfigFile();
+
+  const mergedEnv = {
+    ...process.env,
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || fileConfig?.apiKey,
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || fileConfig?.model,
+    MAX_ITERATIONS: process.env.MAX_ITERATIONS || fileConfig?.maxIterations?.toString(),
+    DEBUG: process.env.DEBUG || (fileConfig?.debug ? "true" : undefined),
+  };
+
+  const result = envSchema.safeParse(mergedEnv);
 
   if (!result.success) {
-    console.error("❌ Invalid environment configuration:");
-    const issues = result.error.issues;
-    for (const issue of issues) {
-      const path = Array.isArray(issue.path) ? issue.path.join(".") : String(issue.path);
-      console.error(`   - ${path}: ${issue.message}`);
-    }
-    console.error("\nPlease set the required environment variables.");
-    console.error("Example: export OPENROUTER_API_KEY=your_api_key_here");
-    process.exit(1);
+    showSetupInstructions();
   }
 
   return result.data;

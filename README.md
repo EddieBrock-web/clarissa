@@ -138,19 +138,51 @@ mv clarissa-macos-arm64 /usr/local/bin/clarissa
 
 ## Configuration
 
-Set your OpenRouter API key as an environment variable:
+Create a config file at `~/.clarissa/config.json`:
+
+```bash
+mkdir -p ~/.clarissa
+echo '{"apiKey": "your_api_key_here"}' > ~/.clarissa/config.json
+```
+
+Or set your OpenRouter API key as an environment variable:
 
 ```bash
 export OPENROUTER_API_KEY=your_api_key_here
 ```
 
-Optional environment variables:
+Optional settings (in config.json or as environment variables):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENROUTER_MODEL` | `anthropic/claude-sonnet-4` | Default model to use |
-| `MAX_ITERATIONS` | `10` | Maximum tool execution iterations per request |
-| `DEBUG` | `false` | Enable debug logging |
+| Config Key | Env Variable | Default | Description |
+|------------|--------------|---------|-------------|
+| `apiKey` | `OPENROUTER_API_KEY` | (required) | Your OpenRouter API key |
+| `model` | `OPENROUTER_MODEL` | `anthropic/claude-sonnet-4` | Default model to use |
+| `maxIterations` | `MAX_ITERATIONS` | `10` | Maximum tool execution iterations |
+| `debug` | `DEBUG` | `false` | Enable debug logging |
+| `mcpServers` | - | `{}` | MCP servers to auto-load (see below) |
+
+### MCP Server Configuration
+
+Add MCP servers to your config file to auto-load them on startup:
+
+```json
+{
+  "apiKey": "your_api_key_here",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "your_token" }
+    }
+  }
+}
+```
+
+Use `/mcp` to view connected servers and `/tools` to see available tools.
 
 ## Usage
 
