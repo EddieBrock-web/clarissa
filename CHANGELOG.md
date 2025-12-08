@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2025-12-07
+
+### Fixed
+
+- Configure custom domain clarissa.run for GitHub Pages
+- SSL certificate provisioning and HTTPS enforcement
+
+## [1.0.1] - 2025-12-07
+
+### Added
+
+- Custom domain clarissa.run for documentation site
+- Open Graph and Twitter Card meta tags for SEO
+- JSON-LD structured data
+
 ## [1.0.0] - 2025-12-07
 
 ### Added
@@ -38,4 +53,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Path traversal protection for file operations
 - Session ID validation
 - Tool confirmation for destructive operations
-
