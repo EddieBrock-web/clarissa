@@ -25,13 +25,12 @@ Clarissa is a command-line AI agent built with [Bun](https://bun.sh) and [Ink](h
 - **Streaming responses** - Real-time token streaming for responsive conversations
 - **Built-in tools** - File operations, Git integration, shell commands, web fetching, and more
 - **MCP integration** - Connect to external MCP servers to extend functionality
-- **Session management** - Save, restore, and auto-save conversation history
+- **Session management** - Save and restore conversation history
 - **Memory persistence** - Remember facts across sessions with `/remember` and `/memories`
 - **Context management** - Automatic token tracking and context truncation
 - **Tool confirmation** - Approve or reject potentially dangerous operations
-- **One-shot mode** - Run single commands directly from your shell with query history
+- **One-shot mode** - Run single commands directly from your shell
 - **Piped input** - Pipe content from other commands for processing
-- **Auto-update notifications** - Get notified when new versions are available
 
 ## How It Works
 
@@ -139,10 +138,11 @@ mv clarissa-macos-arm64 /usr/local/bin/clarissa
 
 ## Configuration
 
-Run the setup command to configure Clarissa:
+Create a config file at `~/.clarissa/config.json`:
 
 ```bash
-clarissa init
+mkdir -p ~/.clarissa
+echo '{"apiKey": "your_api_key_here"}' > ~/.clarissa/config.json
 ```
 
 Or set your OpenRouter API key as an environment variable:
@@ -215,45 +215,30 @@ git diff | clarissa "Write a commit message for these changes"
 
 | Option | Description |
 |--------|-------------|
-| `-c, --continue` | Continue the last session |
 | `-m, --model MODEL` | Use a specific model |
 | `--list-models` | List available models |
-| `--check-update` | Check for available updates |
 | `--debug` | Enable debug output |
 | `-h, --help` | Show help |
 | `-v, --version` | Show version |
 
-### CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `init` | Set up Clarissa with your API key |
-| `upgrade` | Upgrade to the latest version |
-| `config` | View current configuration |
-| `history` | Show one-shot query history |
-
-### Interactive Commands
+### Commands
 
 | Command | Description |
 |---------|-------------|
 | `/help` | Show available commands |
 | `/clear` | Clear conversation history |
-| `/new` | Start a new conversation |
 | `/save [NAME]` | Save current session |
 | `/sessions` | List saved sessions |
 | `/load ID` | Load a saved session |
-| `/last` | Load the most recent session |
 | `/delete ID` | Delete a saved session |
 | `/remember <fact>` | Save a memory |
 | `/memories` | List saved memories |
 | `/forget <#\|ID>` | Forget a memory |
 | `/model [NAME]` | Show or switch the current model |
-| `/mcp CMD ARGS` | Connect to an MCP server |
+| `/mcp` | Show MCP server status |
 | `/tools` | List available tools |
 | `/context` | Show context window usage and breakdown |
 | `/yolo` | Toggle auto-approve mode (skip tool confirmations) |
-| `/version` | Show version info |
-| `/upgrade` | Upgrade to latest version |
 | `/exit` | Exit Clarissa |
 
 ### Keyboard Shortcuts
@@ -262,7 +247,7 @@ git diff | clarissa "Write a commit message for these changes"
 |----------|--------|
 | `Ctrl+C` | Cancel current operation / Exit |
 | `Ctrl+P` | Enhance prompt with AI |
-| `Tab` | Show command suggestions when typing `/` |
+| `Up/Down` | Navigate input history |
 
 ### Built-in Tools
 
@@ -338,12 +323,9 @@ npm publish
 src/
   index.tsx        # Entry point
   agent.ts         # ReAct agent loop implementation
-  update.ts        # Auto-update checking and upgrade
   config/          # Environment configuration
-  history/         # One-shot query history
   llm/             # LLM client and context management
   mcp/             # MCP client integration
-  memory/          # Memory persistence
   session/         # Session persistence
   tools/           # Tool definitions
   ui/              # Ink UI components

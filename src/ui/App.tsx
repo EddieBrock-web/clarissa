@@ -210,7 +210,6 @@ export function App({ initialSession }: AppProps = {}) {
   /forget <#|ID>    - Forget a memory
   /model [NAME]     - Show or switch model
   /mcp              - Show MCP server status
-  /mcp CMD ARGS     - Connect to MCP server
   /tools            - List available tools
   /context          - Show context window usage
   /yolo             - Toggle auto-approve mode
@@ -421,10 +420,9 @@ Keyboard Shortcuts:
         let content = "MCP Servers:\n";
 
         if (connectedServers.length === 0 && configuredNames.length === 0) {
-          content += "  No MCP servers configured or connected.\n\n";
+          content += "  No MCP servers configured.\n\n";
           content += "To add servers, edit ~/.clarissa/config.json:\n";
-          content += '  {"mcpServers": {"name": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"]}}}\n\n';
-          content += "Or connect manually:\n  /mcp <command> [args...]";
+          content += '  {"mcpServers": {"name": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"]}}}';
         } else {
           if (connectedServers.length > 0) {
             content += "\nConnected:\n";
@@ -444,35 +442,6 @@ Keyboard Shortcuts:
         }
 
         setMessages((prev) => [...prev, { role: "system", content }]);
-        clearInput();
-        return;
-      }
-
-      if (value.toLowerCase().startsWith("/mcp ")) {
-        const parts = value.slice(5).trim().split(" ");
-        const command = parts[0];
-        const args = parts.slice(1);
-
-        if (!command) {
-          setMessages((prev) => [...prev, { role: "error", content: "Usage: /mcp <command> [args...]" }]);
-          clearInput();
-          return;
-        }
-
-        try {
-          setState("thinking");
-          const serverName = command.replace(/[^a-zA-Z0-9]/g, "_");
-          const tools = await mcpClient.connect({ name: serverName, command, args });
-          toolRegistry.registerMany(tools);
-          setMessages((prev) => [
-            ...prev,
-            { role: "system", content: `Connected to MCP server: ${serverName}\nRegistered ${tools.length} tools: ${tools.map((t) => t.name).join(", ")}` },
-          ]);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : "MCP connection failed";
-          setMessages((prev) => [...prev, { role: "error", content: msg }]);
-        }
-        setState("idle");
         clearInput();
         return;
       }
