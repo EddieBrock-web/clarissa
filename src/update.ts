@@ -68,7 +68,7 @@ async function fetchLatestVersion(): Promise<string | null> {
       { signal: AbortSignal.timeout(3000) }
     );
     if (!response.ok) return null;
-    const data = await response.json();
+    const data = (await response.json()) as { version?: string };
     return data.version || null;
   } catch {
     return null;
