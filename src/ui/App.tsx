@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { Spinner, ConfirmInput, Alert } from "@inkjs/ui";
 import { Agent } from "../agent.ts";
 import { agentConfig, AVAILABLE_MODELS } from "../config/index.ts";
-import { sessionManager } from "../session/index.ts";
+import { sessionManager, type Session } from "../session/index.ts";
 import { memoryManager } from "../memory/index.ts";
 import { usageTracker } from "../llm/client.ts";
 import { mcpClient } from "../mcp/index.ts";
@@ -12,6 +12,7 @@ import { renderMarkdown } from "./markdown.ts";
 import { contextManager } from "../llm/context.ts";
 import { EnhancedTextInput } from "./components/EnhancedTextInput.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
+import { CURRENT_VERSION, runUpgrade } from "../update.ts";
 
 type AppState = "idle" | "thinking" | "tool" | "streaming" | "confirming" | "enhancing";
 
@@ -27,7 +28,35 @@ interface PendingConfirmation {
   resolve: (confirmed: boolean) => void;
 }
 
-export function App() {
+// All available slash commands for tab completion
+const SLASH_COMMANDS = [
+  "/help",
+  "/clear",
+  "/new",
+  "/save",
+  "/sessions",
+  "/load",
+  "/last",
+  "/delete",
+  "/remember",
+  "/memories",
+  "/forget",
+  "/model",
+  "/mcp",
+  "/tools",
+  "/context",
+  "/yolo",
+  "/version",
+  "/upgrade",
+  "/exit",
+  "/quit",
+];
+
+interface AppProps {
+  initialSession?: Session;
+}
+
+export function App({ initialSession }: AppProps = {}) {
   const { exit } = useApp();
   const [state, setState] = useState<AppState>("idle");
   const [inputKey, setInputKey] = useState(0);
@@ -35,6 +64,9 @@ export function App() {
   const [streamContent, setStreamContent] = useState("");
   const [currentTool, setCurrentTool] = useState<ToolExecution | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const [showCommandHints, setShowCommandHints] = useState(false);
+  const sessionLoadedRef = useRef(false);
 
   const [agent] = useState(
     () =>
@@ -74,6 +106,35 @@ export function App() {
       setState("tool");
     }
   }, [pendingConfirmation]);
+
+  // Load initial session if provided
+  useEffect(() => {
+    if (initialSession && !sessionLoadedRef.current) {
+      sessionLoadedRef.current = true;
+      agent.loadMessages(initialSession.messages);
+      const displayMessages = initialSession.messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role, content: m.content || "" }));
+      setMessages([...displayMessages, { role: "system", content: `Resumed session: ${initialSession.name}` }]);
+    }
+  }, [initialSession, agent]);
+
+  // Auto-save session on unmount (exit)
+  useEffect(() => {
+    return () => {
+      const saveSession = async () => {
+        const history = agent.getMessagesForSave();
+        if (history.length > 0) {
+          if (!sessionManager.getCurrent()) {
+            await sessionManager.create();
+          }
+          sessionManager.updateMessages(history);
+          await sessionManager.save();
+        }
+      };
+      saveSession();
+    };
+  }, [agent]);
 
   // Load configured MCP servers on startup
   useEffect(() => {
@@ -138,9 +199,11 @@ export function App() {
             content: `Commands:
   /help             - Show this help
   /clear            - Clear conversation
+  /new              - Start a new conversation
   /save             - Save current session
   /sessions         - List saved sessions
   /load ID          - Load a saved session
+  /last             - Load most recent session
   /delete ID        - Delete a saved session
   /remember <fact>  - Save a memory
   /memories         - List saved memories
@@ -151,12 +214,67 @@ export function App() {
   /tools            - List available tools
   /context          - Show context window usage
   /yolo             - Toggle auto-approve mode
+  /version          - Show version info
+  /upgrade          - Upgrade to latest version
   /exit             - Exit Clarissa
 
 Keyboard Shortcuts:
-  Ctrl+P            - Enhance current prompt (make it clearer, fix errors)`,
+  Ctrl+P            - Enhance current prompt (make it clearer, fix errors)
+  Tab               - Show command suggestions when typing /`,
           },
         ]);
+        clearInput();
+        return;
+      }
+
+      if (value.toLowerCase() === "/version") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `Clarissa v${CURRENT_VERSION}` },
+        ]);
+        clearInput();
+        return;
+      }
+
+      if (value.toLowerCase() === "/upgrade") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: "Starting upgrade... (this will exit Clarissa)" },
+        ]);
+        clearInput();
+        // Run upgrade in next tick so message is displayed
+        setTimeout(async () => {
+          await runUpgrade();
+          exit();
+        }, 100);
+        return;
+      }
+
+      if (value.toLowerCase() === "/new") {
+        setMessages([]);
+        agent.reset();
+        setMessages((prev) => [...prev, { role: "system", content: "Started new conversation" }]);
+        clearInput();
+        return;
+      }
+
+      if (value.toLowerCase() === "/last") {
+        try {
+          const session = await sessionManager.getLatest();
+          if (session) {
+            agent.loadMessages(session.messages);
+            const displayMessages = session.messages
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m) => ({ role: m.role, content: m.content || "" }));
+            setMessages(displayMessages);
+            setMessages((prev) => [...prev, { role: "system", content: `Loaded session: ${session.name}` }]);
+          } else {
+            setMessages((prev) => [...prev, { role: "system", content: "No saved sessions found" }]);
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Load failed";
+          setMessages((prev) => [...prev, { role: "error", content: msg }]);
+        }
         clearInput();
         return;
       }
@@ -571,6 +689,23 @@ Breakdown by type:
         </Box>
       )}
 
+      {/* Command hints */}
+      {showCommandHints && inputValue.startsWith("/") && (
+        <Box marginBottom={1} flexWrap="wrap">
+          <Text color="gray">Commands: </Text>
+          {SLASH_COMMANDS.filter((cmd) =>
+            cmd.toLowerCase().startsWith(inputValue.toLowerCase())
+          )
+            .slice(0, 8)
+            .map((cmd, i) => (
+              <Text key={cmd} color="cyan">
+                {i > 0 ? ", " : ""}
+                {cmd}
+              </Text>
+            ))}
+        </Box>
+      )}
+
       {/* Input */}
       <Box>
         <Text color="magenta" bold>
@@ -580,6 +715,10 @@ Breakdown by type:
           key={inputKey}
           placeholder="Ask Clarissa anything... (Ctrl+P to enhance)"
           onSubmit={handleSubmit}
+          onChange={(value) => {
+            setInputValue(value);
+            setShowCommandHints(value.startsWith("/") && value.length > 0 && value.length < 10);
+          }}
           isDisabled={state !== "idle" && state !== "enhancing"}
           onEnhanceStart={() => setState("enhancing")}
           onEnhanceComplete={() => setState("idle")}
@@ -663,6 +802,17 @@ export function AppWithErrorBoundary() {
   return (
     <ErrorBoundary>
       <App />
+    </ErrorBoundary>
+  );
+}
+
+/**
+ * App component with initial session (for --continue flag)
+ */
+export function AppWithSession({ initialSession }: { initialSession: Session }) {
+  return (
+    <ErrorBoundary>
+      <App initialSession={initialSession} />
     </ErrorBoundary>
   );
 }

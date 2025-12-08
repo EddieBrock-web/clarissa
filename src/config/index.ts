@@ -1,9 +1,45 @@
 import { z } from "zod";
 import { homedir } from "os";
 import { join } from "path";
+import { mkdirSync, existsSync } from "fs";
 
-const CONFIG_DIR = join(homedir(), ".clarissa");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+export const CONFIG_DIR = join(homedir(), ".clarissa");
+export const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+
+/**
+ * Initialize config by creating directory and saving API key
+ */
+export async function initConfig(apiKey: string): Promise<void> {
+  if (!existsSync(CONFIG_DIR)) {
+    mkdirSync(CONFIG_DIR, { recursive: true });
+  }
+
+  // Load existing config to preserve other settings
+  let existingConfig: Record<string, unknown> = {};
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      existingConfig = JSON.parse(await Bun.file(CONFIG_FILE).text());
+    }
+  } catch {
+    // Ignore parse errors, start fresh
+  }
+
+  const newConfig = { ...existingConfig, apiKey };
+  await Bun.write(CONFIG_FILE, JSON.stringify(newConfig, null, 2) + "\n");
+}
+
+/**
+ * Check if config file exists with an API key
+ */
+export function hasApiKey(): boolean {
+  try {
+    if (!existsSync(CONFIG_FILE)) return false;
+    const content = require(CONFIG_FILE);
+    return Boolean(content?.apiKey);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * MCP server configuration schema (standard MCP JSON format)
@@ -93,10 +129,9 @@ Missing API key. To get started:
 
 1. Get an API key from https://openrouter.ai/keys
 
-2. Create config file at ${CONFIG_FILE}:
+2. Run the setup command:
 
-   mkdir -p ${CONFIG_DIR}
-   echo '{"apiKey": "your_api_key_here"}' > ${CONFIG_FILE}
+   clarissa init
 
    Or set as environment variable:
 

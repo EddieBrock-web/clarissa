@@ -14,10 +14,10 @@ import Docs from '../../layouts/Docs.astro';
     Get your API key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a>.
   </p>
 
-  <h3>Option 1: Config File (Recommended)</h3>
-  <p>Create a config file at <code>~/.clarissa/config.json</code>:</p>
-  <pre><code>mkdir -p ~/.clarissa
-echo '{{"apiKey": "your_api_key_here"}}' > ~/.clarissa/config.json</code></pre>
+  <h3>Option 1: Interactive Setup (Recommended)</h3>
+  <p>Run the setup command:</p>
+  <pre><code>clarissa init</code></pre>
+  <p>This will prompt for your API key and create the config file automatically.</p>
 
   <h3>Option 2: Environment Variable</h3>
   <p>Set your API key as an environment variable:</p>
@@ -138,12 +138,20 @@ echo '{{"apiKey": "your_api_key_here"}}' > ~/.clarissa/config.json</code></pre>
     </thead>
     <tbody>
       <tr>
+        <td><code>-c, --continue</code></td>
+        <td>Continue the last session</td>
+      </tr>
+      <tr>
         <td><code>-m, --model MODEL</code></td>
         <td>Use a specific model for this session</td>
       </tr>
       <tr>
         <td><code>--list-models</code></td>
         <td>List available models and exit</td>
+      </tr>
+      <tr>
+        <td><code>--check-update</code></td>
+        <td>Check for available updates</td>
       </tr>
       <tr>
         <td><code>--debug</code></td>
@@ -156,6 +164,35 @@ echo '{{"apiKey": "your_api_key_here"}}' > ~/.clarissa/config.json</code></pre>
       <tr>
         <td><code>-v, --version</code></td>
         <td>Show version number</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>CLI Commands</h2>
+  <p>Clarissa also provides standalone commands:</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>clarissa init</code></td>
+        <td>Set up Clarissa with your API key</td>
+      </tr>
+      <tr>
+        <td><code>clarissa upgrade</code></td>
+        <td>Upgrade to the latest version</td>
+      </tr>
+      <tr>
+        <td><code>clarissa config</code></td>
+        <td>View current configuration</td>
+      </tr>
+      <tr>
+        <td><code>clarissa history</code></td>
+        <td>Show one-shot query history</td>
       </tr>
     </tbody>
   </table>
@@ -181,6 +218,14 @@ echo '{{"apiKey": "your_api_key_here"}}' > ~/.clarissa/config.json</code></pre>
       <tr>
         <td><code>~/.clarissa/memories.json</code></td>
         <td>Persistent memories across sessions</td>
+      </tr>
+      <tr>
+        <td><code>~/.clarissa/history.json</code></td>
+        <td>One-shot query history</td>
+      </tr>
+      <tr>
+        <td><code>~/.clarissa/update-check.json</code></td>
+        <td>Update check cache (24-hour interval)</td>
       </tr>
     </tbody>
   </table>

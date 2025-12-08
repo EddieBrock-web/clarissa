@@ -33,12 +33,20 @@ import Docs from '../../layouts/Docs.astro';
     </thead>
     <tbody>
       <tr>
+        <td><code>-c, --continue</code></td>
+        <td>Continue the last session</td>
+      </tr>
+      <tr>
         <td><code>-m, --model MODEL</code></td>
         <td>Use a specific model</td>
       </tr>
       <tr>
         <td><code>--list-models</code></td>
         <td>List available models</td>
+      </tr>
+      <tr>
+        <td><code>--check-update</code></td>
+        <td>Check for available updates</td>
       </tr>
       <tr>
         <td><code>--debug</code></td>
@@ -56,7 +64,7 @@ import Docs from '../../layouts/Docs.astro';
   </table>
 
   <h2>Slash Commands</h2>
-  <p>Clarissa supports several slash commands for control and configuration:</p>
+  <p>Clarissa supports several slash commands for control and configuration. Type <code>/</code> to see suggestions:</p>
   <table>
     <thead>
       <tr>
@@ -74,6 +82,10 @@ import Docs from '../../layouts/Docs.astro';
         <td>Clear conversation history</td>
       </tr>
       <tr>
+        <td><code>/new</code></td>
+        <td>Start a new conversation</td>
+      </tr>
+      <tr>
         <td><code>/save [NAME]</code></td>
         <td>Save current session</td>
       </tr>
@@ -84,6 +96,10 @@ import Docs from '../../layouts/Docs.astro';
       <tr>
         <td><code>/load ID</code></td>
         <td>Load a saved session</td>
+      </tr>
+      <tr>
+        <td><code>/last</code></td>
+        <td>Load the most recent session</td>
       </tr>
       <tr>
         <td><code>/delete ID</code></td>
@@ -120,6 +136,14 @@ import Docs from '../../layouts/Docs.astro';
       <tr>
         <td><code>/yolo</code></td>
         <td>Toggle auto-approve mode (skip tool confirmations)</td>
+      </tr>
+      <tr>
+        <td><code>/version</code></td>
+        <td>Show version info</td>
+      </tr>
+      <tr>
+        <td><code>/upgrade</code></td>
+        <td>Upgrade to latest version</td>
       </tr>
       <tr>
         <td><code>/exit</code></td>
@@ -159,7 +183,10 @@ Approve? (y/n)</code></pre>
   <p>Press <code>y</code> to approve or <code>n</code> to reject the action.</p>
 
   <h2>Session Management</h2>
-  <p>Save your current conversation to continue later:</p>
+  <p>
+    Sessions are automatically saved when you exit Clarissa. You can also manually save
+    with a custom name:
+  </p>
   <pre><code>/save my-project-session</code></pre>
 
   <p>List saved sessions:</p>
@@ -167,6 +194,15 @@ Approve? (y/n)</code></pre>
 
   <p>Load a previous session:</p>
   <pre><code>/load session_id</code></pre>
+
+  <p>Quickly load the most recent session:</p>
+  <pre><code>/last</code></pre>
+
+  <p>Or continue from the command line:</p>
+  <pre><code>clarissa -c</code></pre>
+
+  <p>Start a fresh conversation without exiting:</p>
+  <pre><code>/new</code></pre>
 
   <p>Delete a session:</p>
   <pre><code>/delete session_id</code></pre>
@@ -235,7 +271,22 @@ Approve? (y/n)</code></pre>
         <td><code>↑</code> / <code>↓</code></td>
         <td>Navigate input history</td>
       </tr>
+      <tr>
+        <td><code>Tab</code></td>
+        <td>Show command suggestions when typing <code>/</code></td>
+      </tr>
     </tbody>
   </table>
+
+  <h2>Updating Clarissa</h2>
+  <p>
+    Clarissa checks for updates on startup and notifies you when a new version is available.
+    To upgrade:
+  </p>
+  <pre><code>clarissa upgrade</code></pre>
+  <p>Or from within interactive mode:</p>
+  <pre><code>/upgrade</code></pre>
+  <p>To manually check for updates:</p>
+  <pre><code>clarissa --check-update</code></pre>
 </Docs>
 

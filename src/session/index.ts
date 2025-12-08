@@ -188,6 +188,19 @@ class SessionManager {
       return false;
     }
   }
+
+  /**
+   * Get the most recent session
+   */
+  async getLatest(): Promise<Session | null> {
+    const sessions = await this.list();
+    if (sessions.length === 0) return null;
+
+    const latest = sessions[0];
+    if (!latest) return null;
+
+    return this.load(latest.id);
+  }
 }
 
 export const sessionManager = new SessionManager();

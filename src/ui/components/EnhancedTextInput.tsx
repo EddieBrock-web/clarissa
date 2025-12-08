@@ -22,6 +22,10 @@ export type EnhancedTextInputProps = {
    */
   readonly onSubmit?: (value: string) => void;
   /**
+   * Callback when value changes.
+   */
+  readonly onChange?: (value: string) => void;
+  /**
    * Callback when enhancement starts.
    */
   readonly onEnhanceStart?: () => void;
@@ -42,6 +46,7 @@ export function EnhancedTextInput({
   placeholder = "",
   defaultValue = "",
   onSubmit,
+  onChange,
   onEnhanceStart,
   onEnhanceComplete,
   onEnhanceError,
@@ -49,6 +54,12 @@ export function EnhancedTextInput({
   const [value, setValue] = useState(defaultValue);
   const [cursorOffset, setCursorOffset] = useState(defaultValue.length);
   const [isEnhancing, setIsEnhancing] = useState(false);
+
+  // Wrapper to call onChange when value changes
+  const updateValue = useCallback((newValue: string) => {
+    setValue(newValue);
+    onChange?.(newValue);
+  }, [onChange]);
 
   // Reset state when defaultValue changes (for key-based remounting)
   useEffect(() => {
@@ -64,7 +75,7 @@ export function EnhancedTextInput({
 
     try {
       const enhanced = await enhancePromptPreservingCode(value);
-      setValue(enhanced);
+      updateValue(enhanced);
       setCursorOffset(enhanced.length);
       onEnhanceComplete?.();
     } catch (error) {
@@ -72,7 +83,7 @@ export function EnhancedTextInput({
     } finally {
       setIsEnhancing(false);
     }
-  }, [value, isEnhancing, isDisabled, onEnhanceStart, onEnhanceComplete, onEnhanceError]);
+  }, [value, isEnhancing, isDisabled, onEnhanceStart, onEnhanceComplete, onEnhanceError, updateValue]);
 
   useInput(
     (input, key) => {
@@ -110,13 +121,13 @@ export function EnhancedTextInput({
         if (cursorOffset > 0) {
           const newValue =
             value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
-          setValue(newValue);
+          updateValue(newValue);
           setCursorOffset((prev) => Math.max(0, prev - 1));
         }
       } else if (input && !key.ctrl && !key.meta) {
         const newValue =
           value.slice(0, cursorOffset) + input + value.slice(cursorOffset);
-        setValue(newValue);
+        updateValue(newValue);
         setCursorOffset((prev) => prev + input.length);
       }
     },
