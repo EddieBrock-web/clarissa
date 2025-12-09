@@ -7,9 +7,18 @@ export const CONFIG_DIR = join(homedir(), ".clarissa");
 export const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
 /**
- * Initialize config by creating directory and saving API key
+ * API keys for cloud providers
  */
-export async function initConfig(apiKey: string): Promise<void> {
+export interface ApiKeys {
+  openrouterApiKey?: string;
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+}
+
+/**
+ * Initialize config by creating directory and saving API keys
+ */
+export async function initConfig(keys: ApiKeys): Promise<void> {
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });
   }
@@ -24,18 +33,27 @@ export async function initConfig(apiKey: string): Promise<void> {
     // Ignore parse errors, start fresh
   }
 
-  const newConfig = { ...existingConfig, apiKey };
+  // Merge new keys with existing config, only setting non-empty values
+  const newConfig = { ...existingConfig };
+  if (keys.openrouterApiKey) newConfig.openrouterApiKey = keys.openrouterApiKey;
+  if (keys.openaiApiKey) newConfig.openaiApiKey = keys.openaiApiKey;
+  if (keys.anthropicApiKey) newConfig.anthropicApiKey = keys.anthropicApiKey;
+
   await Bun.write(CONFIG_FILE, JSON.stringify(newConfig, null, 2) + "\n");
 }
 
 /**
- * Check if config file exists with an API key
+ * Check if config file exists with at least one API key
  */
 export function hasApiKey(): boolean {
   try {
     if (!existsSync(CONFIG_FILE)) return false;
     const content = require(CONFIG_FILE);
-    return Boolean(content?.apiKey);
+    return Boolean(
+      content?.openrouterApiKey ||
+      content?.openaiApiKey ||
+      content?.anthropicApiKey
+    );
   } catch {
     return false;
   }
@@ -53,14 +71,69 @@ const mcpServerSchema = z.object({
 export type MCPServerFileConfig = z.infer<typeof mcpServerSchema>;
 
 /**
+ * Valid provider IDs
+ */
+const providerIdSchema = z.enum(["openrouter", "openai", "anthropic", "apple-ai", "lmstudio", "local-llama"]);
+export type ProviderIdConfig = z.infer<typeof providerIdSchema>;
+
+/**
+ * Local Llama configuration schema
+ */
+const localLlamaConfigSchema = z.object({
+  /** Path to the GGUF model file */
+  modelPath: z.string(),
+  /** Number of layers to offload to GPU (-1 for auto, 0 for CPU-only) */
+  gpuLayers: z.number().int().min(-1).optional(),
+  /** Context window size in tokens */
+  contextSize: z.number().int().positive().optional(),
+  /** Batch size for prompt processing */
+  batchSize: z.number().int().positive().optional(),
+  /** Enable flash attention for faster inference */
+  flashAttention: z.boolean().optional(),
+});
+
+export type LocalLlamaFileConfig = z.infer<typeof localLlamaConfigSchema>;
+
+// Store loaded local-llama config for access by other modules
+let loadedLocalLlamaConfig: LocalLlamaFileConfig | undefined;
+
+/**
+ * Get configured local-llama settings from config file
+ */
+export function getLocalLlamaConfig(): LocalLlamaFileConfig | undefined {
+  return loadedLocalLlamaConfig;
+}
+
+/**
+ * Provider-specific models configuration
+ */
+const providerModelsSchema = z.object({
+  openrouter: z.array(z.string()).optional(),
+  openai: z.array(z.string()).optional(),
+  anthropic: z.array(z.string()).optional(),
+});
+
+export type ProviderModelsConfig = z.infer<typeof providerModelsSchema>;
+
+/**
  * Config file schema
  */
 const configFileSchema = z.object({
-  apiKey: z.string().min(1).optional(),
-  model: z.string().optional(),
+  // Cloud provider API keys
+  openrouterApiKey: z.string().min(1).optional(),
+  openaiApiKey: z.string().min(1).optional(),
+  anthropicApiKey: z.string().min(1).optional(),
+  // General settings
   maxIterations: z.number().int().positive().optional(),
   debug: z.boolean().optional(),
   mcpServers: z.record(z.string(), mcpServerSchema).optional(),
+  // Local LLM settings
+  lmstudioModel: z.string().optional(),
+  localModelPath: z.string().optional(),
+  // Local Llama advanced configuration (alternative to just localModelPath)
+  localLlama: localLlamaConfigSchema.optional(),
+  // Custom model lists per provider
+  models: providerModelsSchema.optional(),
 });
 
 type ConfigFile = z.infer<typeof configFileSchema>;
@@ -75,14 +148,29 @@ export function getMcpServers(): Record<string, MCPServerFileConfig> {
   return loadedMcpServers;
 }
 
+// Store loaded provider models config for access by other modules
+let loadedProviderModels: ProviderModelsConfig = {};
+
+/**
+ * Get configured model lists per provider from config file
+ */
+export function getProviderModels(): ProviderModelsConfig {
+  return loadedProviderModels;
+}
+
 /**
  * Environment configuration schema with Zod validation
  */
 const envSchema = z.object({
-  OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
-  OPENROUTER_MODEL: z
-    .string()
-    .default("anthropic/claude-sonnet-4"),
+  // OpenRouter API key is now optional (local providers don't need it)
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default("anthropic/claude-sonnet-4"),
+  // OpenAI direct API
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default("gpt-4o"),
+  // Anthropic direct API
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
   APP_NAME: z.string().default("Clarissa"),
   APP_URL: z.string().url().optional(),
   MAX_ITERATIONS: z.coerce.number().int().positive().default(10),
@@ -91,6 +179,10 @@ const envSchema = z.object({
     .optional()
     .default("false")
     .transform((val) => val === "true" || val === "1"),
+  // Provider settings from config file (passed through env for consistency)
+  PROVIDER: providerIdSchema.optional(),
+  LMSTUDIO_MODEL: z.string().optional(),
+  LOCAL_MODEL_PATH: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
@@ -99,6 +191,42 @@ export type EnvConfig = z.infer<typeof envSchema>;
  * Check if we're running in a test environment
  */
 const isTestEnv = process.env.NODE_ENV === "test" || typeof Bun !== "undefined" && Bun.env.BUN_ENV === "test" || process.argv.some(arg => arg.includes("bun") && arg.includes("test"));
+
+const PREFERENCES_FILE = join(CONFIG_DIR, "preferences.json");
+
+/**
+ * Preferences schema for saved runtime settings
+ */
+interface SavedPreferences {
+  lastProvider?: ProviderIdConfig;
+  lastModel?: string;
+}
+
+// Store loaded preferences for access by other modules
+let loadedPreferences: SavedPreferences = {};
+
+/**
+ * Load preferences from ~/.clarissa/preferences.json (synchronous)
+ */
+function loadPreferencesFile(): SavedPreferences {
+  try {
+    if (!existsSync(PREFERENCES_FILE)) return {};
+    const content = require(PREFERENCES_FILE);
+    return {
+      lastProvider: content?.lastProvider,
+      lastModel: content?.lastModel,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Get loaded preferences
+ */
+export function getPreferences(): SavedPreferences {
+  return loadedPreferences;
+}
 
 /**
  * Load config from ~/.clarissa/config.json
@@ -112,6 +240,15 @@ function loadConfigFile(): ConfigFile | null {
     if (result.success) {
       // Store MCP servers for later access
       loadedMcpServers = result.data.mcpServers || {};
+      // Store local-llama config for later access
+      if (result.data.localLlama) {
+        loadedLocalLlamaConfig = result.data.localLlama;
+      } else if (result.data.localModelPath) {
+        // Support legacy localModelPath as simple config
+        loadedLocalLlamaConfig = { modelPath: result.data.localModelPath };
+      }
+      // Store provider models for later access
+      loadedProviderModels = result.data.models || {};
       return result.data;
     }
     return null;
@@ -121,21 +258,24 @@ function loadConfigFile(): ConfigFile | null {
 }
 
 /**
- * Show setup instructions when API key is missing
+ * Show setup instructions when no provider is configured
  */
 function showSetupInstructions(): never {
   console.error(`
-Missing API key. To get started:
+No LLM provider configured. Options:
 
-1. Get an API key from https://openrouter.ai/keys
-
-2. Run the setup command:
-
+1. Cloud (OpenRouter):
    clarissa init
+   Or: export OPENROUTER_API_KEY=your_api_key_here
 
-   Or set as environment variable:
+2. Local (LM Studio):
+   - Install LM Studio from https://lmstudio.ai
+   - Load a model and start the server
+   - Clarissa will auto-detect it
 
-   export OPENROUTER_API_KEY=your_api_key_here
+3. Local (Direct GGUF model):
+   - Add to ~/.clarissa/config.json:
+     { "localModelPath": "/path/to/model.gguf" }
 `);
   process.exit(1);
 }
@@ -149,27 +289,47 @@ function loadConfig(): EnvConfig {
     return {
       OPENROUTER_API_KEY: "test-api-key",
       OPENROUTER_MODEL: "anthropic/claude-sonnet-4",
+      OPENAI_API_KEY: undefined,
+      OPENAI_MODEL: "gpt-4o",
+      ANTHROPIC_API_KEY: undefined,
+      ANTHROPIC_MODEL: "claude-sonnet-4-20250514",
       APP_NAME: "Clarissa",
       APP_URL: undefined,
       MAX_ITERATIONS: 10,
       DEBUG: false,
+      PROVIDER: undefined,
+      LMSTUDIO_MODEL: undefined,
+      LOCAL_MODEL_PATH: undefined,
     };
   }
 
-  // Load config file and merge with environment
+  // Load config file and preferences
   const fileConfig = loadConfigFile();
+  loadedPreferences = loadPreferencesFile();
 
+  // Priority order: env vars > config file > saved preferences > defaults
   const mergedEnv = {
     ...process.env,
-    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || fileConfig?.apiKey,
-    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || fileConfig?.model,
+    // API keys: env vars are backup, config file is primary
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || fileConfig?.openrouterApiKey,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || fileConfig?.openaiApiKey,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || fileConfig?.anthropicApiKey,
+    // Model/provider from preferences (runtime choices persist)
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || loadedPreferences.lastModel,
     MAX_ITERATIONS: process.env.MAX_ITERATIONS || fileConfig?.maxIterations?.toString(),
     DEBUG: process.env.DEBUG || (fileConfig?.debug ? "true" : undefined),
+    // Provider from preferences (runtime choice persists)
+    PROVIDER: process.env.LLM_PROVIDER || loadedPreferences.lastProvider,
+    LMSTUDIO_MODEL: process.env.LMSTUDIO_MODEL || fileConfig?.lmstudioModel,
+    LOCAL_MODEL_PATH: process.env.LOCAL_MODEL_PATH || fileConfig?.localModelPath,
   };
 
   const result = envSchema.safeParse(mergedEnv);
 
   if (!result.success) {
+    // Only show setup instructions if validation truly fails
+    // With optional API key, this should rarely happen
+    console.error("Config validation error:", result.error.format());
     showSetupInstructions();
   }
 

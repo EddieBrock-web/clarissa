@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { Spinner, ConfirmInput, Alert } from "@inkjs/ui";
 import { Agent } from "../agent.ts";
-import { agentConfig, AVAILABLE_MODELS } from "../config/index.ts";
+import { agentConfig } from "../config/index.ts";
 import { sessionManager, type Session } from "../session/index.ts";
 import { memoryManager } from "../memory/index.ts";
 import { usageTracker } from "../llm/client.ts";
@@ -12,9 +12,15 @@ import { renderMarkdown } from "./markdown.ts";
 import { contextManager } from "../llm/context.ts";
 import { EnhancedTextInput } from "./components/EnhancedTextInput.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
-import { CURRENT_VERSION, runUpgrade } from "../update.ts";
+import { InteractiveSelect, type SelectOption } from "./components/InteractiveSelect.tsx";
+import { CURRENT_VERSION, runUpgrade, fetchLatestVersion, isNewerVersion } from "../update.ts";
+import { providerRegistry, type ProviderId } from "../llm/providers/index.ts";
+import { preferencesManager } from "../preferences/index.ts";
+import { useTerminalFocus } from "./hooks/useTerminalFocus.ts";
 
-type AppState = "idle" | "thinking" | "tool" | "streaming" | "confirming" | "enhancing";
+type AppState = "idle" | "thinking" | "tool" | "streaming" | "confirming" | "enhancing" | "upgradeConfirm" | "selecting";
+
+type SelectionType = "provider" | "model" | "session" | null;
 
 interface ToolExecution {
   name: string;
@@ -42,6 +48,7 @@ const SLASH_COMMANDS = [
   "/memories",
   "/forget",
   "/model",
+  "/provider",
   "/mcp",
   "/tools",
   "/context",
@@ -66,7 +73,15 @@ export function App({ initialSession }: AppProps = {}) {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [showCommandHints, setShowCommandHints] = useState(false);
+  const [upgradeInfo, setUpgradeInfo] = useState<{ current: string; latest: string } | null>(null);
+  const [selectionType, setSelectionType] = useState<SelectionType>(null);
+  const [selectionOptions, setSelectionOptions] = useState<SelectOption[]>([]);
+  const [selectionTitle, setSelectionTitle] = useState<string>("");
   const sessionLoadedRef = useRef(false);
+
+  // Enable terminal focus reporting to fix visual bug where content
+  // disappears when terminal loses focus
+  useTerminalFocus();
 
   const [agent] = useState(
     () =>
@@ -107,6 +122,82 @@ export function App({ initialSession }: AppProps = {}) {
     }
   }, [pendingConfirmation]);
 
+  const handleUpgradeConfirmation = useCallback(async (confirmed: boolean) => {
+    if (!upgradeInfo) {
+      setState("idle");
+      return;
+    }
+    if (confirmed) {
+      setMessages((prev) => [...prev, { role: "system", content: "Starting upgrade... (this will exit Clarissa)" }]);
+      setUpgradeInfo(null);
+      setState("idle");
+      // Run upgrade in next tick so message is displayed
+      setTimeout(async () => {
+        await runUpgrade();
+        exit();
+      }, 100);
+    } else {
+      setMessages((prev) => [...prev, { role: "system", content: "Upgrade cancelled" }]);
+      setUpgradeInfo(null);
+      setState("idle");
+    }
+  }, [upgradeInfo, exit]);
+
+  const handleSelectionCancel = useCallback(() => {
+    setSelectionType(null);
+    setSelectionOptions([]);
+    setSelectionTitle("");
+    setState("idle");
+  }, []);
+
+  const handleSelectionComplete = useCallback(async (value: string) => {
+    const type = selectionType;
+    setSelectionType(null);
+    setSelectionOptions([]);
+    setSelectionTitle("");
+    setState("idle");
+
+    if (type === "provider") {
+      try {
+        await providerRegistry.setActiveProvider(value as ProviderId);
+        const provider = providerRegistry.getProvider(value as ProviderId);
+        const providerModel = provider?.info.availableModels?.[0] ?? value;
+        contextManager.setModel(providerModel);
+        usageTracker.setModel(providerModel);
+        await preferencesManager.setLastProvider(value as ProviderId);
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `Provider switched to: ${provider?.info.name || value}` },
+        ]);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Failed to switch provider";
+        setMessages((prev) => [...prev, { role: "error", content: msg }]);
+      }
+    } else if (type === "model") {
+      agentConfig.setModel(value);
+      contextManager.setModel(value);
+      usageTracker.setModel(value);
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", content: `Model switched to: ${value}` },
+      ]);
+    } else if (type === "session") {
+      try {
+        const session = await sessionManager.load(value);
+        if (session) {
+          agent.loadMessages(session.messages);
+          const displayMessages = session.messages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role, content: m.content || "" }));
+          setMessages([...displayMessages, { role: "system", content: `Loaded session: ${session.name}` }]);
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Failed to load session";
+        setMessages((prev) => [...prev, { role: "error", content: msg }]);
+      }
+    }
+  }, [selectionType, agent]);
+
   // Load initial session if provided
   useEffect(() => {
     if (initialSession && !sessionLoadedRef.current) {
@@ -119,22 +210,25 @@ export function App({ initialSession }: AppProps = {}) {
     }
   }, [initialSession, agent]);
 
-  // Auto-save session on unmount (exit)
+  // Note: Session is saved explicitly in /exit and after each message exchange
+  // We don't use a cleanup effect here since it can't await async operations
+
+  // Initialize context manager with active provider's model on startup
   useEffect(() => {
-    return () => {
-      const saveSession = async () => {
-        const history = agent.getMessagesForSave();
-        if (history.length > 0) {
-          if (!sessionManager.getCurrent()) {
-            await sessionManager.create();
-          }
-          sessionManager.updateMessages(history);
-          await sessionManager.save();
-        }
-      };
-      saveSession();
+    const initContextForProvider = async () => {
+      try {
+        const provider = await providerRegistry.getActiveProvider();
+        // For providers with fixed models (like apple-ai), use the provider ID for context limits
+        const providerModel = provider.info.availableModels?.[0] ?? provider.info.id;
+        contextManager.setModel(providerModel);
+        usageTracker.setModel(providerModel);
+      } catch {
+        // No provider available yet, will be set when provider is activated
+      }
     };
-  }, [agent]);
+
+    initContextForProvider();
+  }, []);
 
   // Load configured MCP servers on startup
   useEffect(() => {
@@ -180,7 +274,28 @@ export function App({ initialSession }: AppProps = {}) {
 
       // Handle special commands
       if (value.toLowerCase() === "/exit" || value.toLowerCase() === "/quit") {
+        // Save session before exit
+        try {
+          const history = agent.getMessagesForSave();
+          if (history.length > 0) {
+            if (!sessionManager.getCurrent()) {
+              await sessionManager.create();
+            }
+            sessionManager.updateMessages(history);
+            await sessionManager.save();
+          }
+        } catch {
+          // Ignore save errors on exit
+        }
+        // Shutdown provider (unloads local-llama model if active)
+        try {
+          await providerRegistry.shutdown();
+        } catch {
+          // Ignore shutdown errors on exit
+        }
         exit();
+        // Force process exit after a short delay to ensure cleanup
+        setTimeout(() => process.exit(0), 100);
         return;
       }
 
@@ -209,6 +324,7 @@ export function App({ initialSession }: AppProps = {}) {
   /memories         - List saved memories
   /forget <#|ID>    - Forget a memory
   /model [NAME]     - Show or switch model
+  /provider [NAME]  - Show or switch LLM provider
   /mcp              - Show MCP server status
   /tools            - List available tools
   /context          - Show context window usage
@@ -218,6 +334,7 @@ export function App({ initialSession }: AppProps = {}) {
   /exit             - Exit Clarissa
 
 Keyboard Shortcuts:
+  Esc Esc           - Clear current input
   Ctrl+P            - Enhance current prompt (make it clearer, fix errors)
   Tab               - Show command suggestions when typing /`,
           },
@@ -236,16 +353,34 @@ Keyboard Shortcuts:
       }
 
       if (value.toLowerCase() === "/upgrade") {
+        // Check if running in development mode (bun --hot)
+        if (process.env.NODE_ENV === "development" || process.argv.includes("--hot")) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "system", content: "Upgrade not available in development mode.\nRun 'clarissa upgrade' from the command line instead." },
+          ]);
+          clearInput();
+          return;
+        }
+        // Check for latest version
+        setMessages((prev) => [...prev, { role: "system", content: "Checking for updates..." }]);
+        clearInput();
+        const latest = await fetchLatestVersion();
+        if (!latest) {
+          setMessages((prev) => [...prev, { role: "error", content: "Failed to check for updates. Please try again later." }]);
+          return;
+        }
+        if (!isNewerVersion(CURRENT_VERSION, latest)) {
+          setMessages((prev) => [...prev, { role: "system", content: `Already on latest version (${CURRENT_VERSION})` }]);
+          return;
+        }
+        // Show version info and ask for confirmation
         setMessages((prev) => [
           ...prev,
-          { role: "system", content: "Starting upgrade... (this will exit Clarissa)" },
+          { role: "system", content: `Update available: ${CURRENT_VERSION} -> ${latest}` },
         ]);
-        clearInput();
-        // Run upgrade in next tick so message is displayed
-        setTimeout(async () => {
-          await runUpgrade();
-          exit();
-        }, 100);
+        setUpgradeInfo({ current: CURRENT_VERSION, latest });
+        setState("upgradeConfirm");
         return;
       }
 
@@ -295,24 +430,51 @@ Keyboard Shortcuts:
 
       if (value.toLowerCase() === "/model" || value.toLowerCase().startsWith("/model ")) {
         const parts = value.split(" ");
+        const availableModels = providerRegistry.getAvailableModels();
+        const providerId = providerRegistry.getActiveProviderId();
+
         if (parts.length === 1) {
-          // Show current model and available models
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "system",
-              content: `Current model: ${agentConfig.model}\n\nAvailable models:\n${AVAILABLE_MODELS.map((m) => `  - ${m}`).join("\n")}`,
-            },
-          ]);
+          // Show interactive model selector
+          if (!availableModels || availableModels.length === 0) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "system",
+                content: `Current model: ${agentConfig.model}\n\nThe ${providerId || "current"} provider uses a fixed or dynamically loaded model that cannot be changed via /model.`,
+              },
+            ]);
+          } else {
+            const options: SelectOption[] = availableModels.map((m) => ({
+              label: m.split("/").pop() || m,
+              value: m,
+              hint: m === agentConfig.model ? "(current)" : undefined,
+            }));
+            setSelectionType("model");
+            setSelectionOptions(options);
+            setSelectionTitle(`Select model for ${providerId} (current: ${agentConfig.model.split("/").pop()})`);
+            setState("selecting");
+          }
         } else {
           const newModel = parts.slice(1).join(" ");
-          // Validate model name
-          if (!(AVAILABLE_MODELS as readonly string[]).includes(newModel)) {
+
+          if (!availableModels || availableModels.length === 0) {
             setMessages((prev) => [
               ...prev,
               {
                 role: "error",
-                content: `Unknown model: ${newModel}\n\nAvailable models:\n${AVAILABLE_MODELS.map((m) => `  - ${m}`).join("\n")}`,
+                content: `The ${providerId || "current"} provider uses a fixed or dynamically loaded model. Model selection is not available.\n\nUse /provider to switch to a different provider if you need to select a model.`,
+              },
+            ]);
+            clearInput();
+            return;
+          }
+
+          if (!availableModels.includes(newModel)) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "error",
+                content: `Unknown model: ${newModel}\n\nAvailable models for ${providerId}:\n${availableModels.map((m) => `  - ${m}`).join("\n")}`,
               },
             ]);
             clearInput();
@@ -321,7 +483,62 @@ Keyboard Shortcuts:
           agentConfig.setModel(newModel);
           contextManager.setModel(newModel);
           usageTracker.setModel(newModel);
+          await preferencesManager.setLastModel(newModel);
           setMessages((prev) => [...prev, { role: "system", content: `Model switched to: ${newModel}` }]);
+        }
+        clearInput();
+        return;
+      }
+
+      if (value.toLowerCase() === "/provider" || value.toLowerCase().startsWith("/provider ")) {
+        const parts = value.split(" ");
+        if (parts.length === 1) {
+          // Show interactive provider selector
+          try {
+            const statuses = await providerRegistry.getProviderStatuses();
+            const registered = providerRegistry.getRegisteredProviders();
+            const activeProvider = await providerRegistry.getActiveProvider().catch(() => null);
+            const activeId = activeProvider?.info.id;
+
+            // Build options for available providers only
+            const options: SelectOption[] = [];
+            for (const { id, name } of registered) {
+              const status = statuses.get(id);
+              if (status?.available) {
+                const hint = id === activeId ? "(current)" : status.model ? `(${status.model})` : "";
+                options.push({ label: `${id}: ${name}`, value: id, hint });
+              }
+            }
+
+            if (options.length === 0) {
+              setMessages((prev) => [...prev, { role: "error", content: "No providers available" }]);
+            } else {
+              setSelectionType("provider");
+              setSelectionOptions(options);
+              setSelectionTitle(`Select provider (current: ${activeId || "none"})`);
+              setState("selecting");
+            }
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : "Failed to get provider status";
+            setMessages((prev) => [...prev, { role: "error", content: msg }]);
+          }
+        } else {
+          const newProvider = parts[1] as ProviderId;
+          try {
+            await providerRegistry.setActiveProvider(newProvider);
+            const provider = providerRegistry.getProvider(newProvider);
+            const providerModel = provider?.info.availableModels?.[0] ?? newProvider;
+            contextManager.setModel(providerModel);
+            usageTracker.setModel(providerModel);
+            await preferencesManager.setLastProvider(newProvider);
+            setMessages((prev) => [
+              ...prev,
+              { role: "system", content: `Provider switched to: ${provider?.info.name || newProvider}` },
+            ]);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : "Failed to switch provider";
+            setMessages((prev) => [...prev, { role: "error", content: msg }]);
+          }
         }
         clearInput();
         return;
@@ -353,10 +570,15 @@ Keyboard Shortcuts:
           if (sessions.length === 0) {
             setMessages((prev) => [...prev, { role: "system", content: "No saved sessions" }]);
           } else {
-            const list = sessions
-              .map((s) => `  ${s.id.slice(0, 20)}... - ${s.name} (${new Date(s.updatedAt).toLocaleDateString()})`)
-              .join("\n");
-            setMessages((prev) => [...prev, { role: "system", content: `Saved sessions:\n${list}` }]);
+            const options: SelectOption[] = sessions.map((s) => ({
+              label: s.name,
+              value: s.id,
+              hint: new Date(s.updatedAt).toLocaleDateString(),
+            }));
+            setSelectionType("session");
+            setSelectionOptions(options);
+            setSelectionTitle("Select session to load");
+            setState("selecting");
           }
         } catch (error) {
           const msg = error instanceof Error ? error.message : "List failed";
@@ -366,8 +588,13 @@ Keyboard Shortcuts:
         return;
       }
 
-      if (value.toLowerCase().startsWith("/load ")) {
+      if (value.toLowerCase() === "/load" || value.toLowerCase().startsWith("/load ")) {
         const sessionId = value.slice(6).trim();
+        if (!sessionId) {
+          setMessages((prev) => [...prev, { role: "error", content: "Usage: /load <session_id>\nUse /sessions to list available sessions." }]);
+          clearInput();
+          return;
+        }
         try {
           const session = await sessionManager.load(sessionId);
           if (session) {
@@ -389,10 +616,10 @@ Keyboard Shortcuts:
         return;
       }
 
-      if (value.toLowerCase().startsWith("/delete ")) {
+      if (value.toLowerCase() === "/delete" || value.toLowerCase().startsWith("/delete ")) {
         const sessionId = value.slice(8).trim();
         if (!sessionId) {
-          setMessages((prev) => [...prev, { role: "error", content: "Usage: /delete <session_id>" }]);
+          setMessages((prev) => [...prev, { role: "error", content: "Usage: /delete <session_id>\nUse /sessions to list available sessions." }]);
           clearInput();
           return;
         }
@@ -489,7 +716,7 @@ Breakdown by type:
         return;
       }
 
-      if (value.toLowerCase().startsWith("/remember ")) {
+      if (value.toLowerCase() === "/remember" || value.toLowerCase().startsWith("/remember ")) {
         const fact = value.slice(10).trim();
         if (!fact) {
           setMessages((prev) => [...prev, { role: "error", content: "Usage: /remember <fact>" }]);
@@ -529,10 +756,10 @@ Breakdown by type:
         return;
       }
 
-      if (value.toLowerCase().startsWith("/forget ")) {
+      if (value.toLowerCase() === "/forget" || value.toLowerCase().startsWith("/forget ")) {
         const idOrIndex = value.slice(8).trim();
         if (!idOrIndex) {
-          setMessages((prev) => [...prev, { role: "error", content: "Usage: /forget <# or ID>" }]);
+          setMessages((prev) => [...prev, { role: "error", content: "Usage: /forget <# or ID>\nUse /memories to list saved memories." }]);
           clearInput();
           return;
         }
@@ -551,6 +778,14 @@ Breakdown by type:
         return;
       }
 
+      // Block unknown slash commands from being sent to LLM
+      if (value.startsWith("/")) {
+        const cmd = value.split(" ")[0]?.toLowerCase() || "";
+        setMessages((prev) => [...prev, { role: "error", content: `Unknown command: ${cmd}\nType /help to see available commands.` }]);
+        clearInput();
+        return;
+      }
+
       // Add user message and clear input immediately
       setMessages((prev) => [...prev, { role: "user", content: value }]);
       clearInput();
@@ -561,6 +796,13 @@ Breakdown by type:
         const response = await agent.run(value);
         setMessages((prev) => [...prev, { role: "assistant", content: response }]);
         setStreamContent("");
+
+        // Auto-save session after each message exchange
+        if (!sessionManager.getCurrent()) {
+          await sessionManager.create();
+        }
+        sessionManager.updateMessages(agent.getMessagesForSave());
+        await sessionManager.save();
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Unknown error";
         setMessages((prev) => [...prev, { role: "error", content: msg }]);
@@ -570,10 +812,34 @@ Breakdown by type:
     [agent, exit, clearInput]
   );
 
-  // Handle Ctrl+C
+  // Handle Ctrl+C - save session and cleanup before exit
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
-      exit();
+      // Cleanup asynchronously then exit
+      (async () => {
+        try {
+          // Save session before exit
+          const history = agent.getMessagesForSave();
+          if (history.length > 0) {
+            if (!sessionManager.getCurrent()) {
+              await sessionManager.create();
+            }
+            sessionManager.updateMessages(history);
+            await sessionManager.save();
+          }
+        } catch {
+          // Ignore save errors on exit
+        }
+        try {
+          // Shutdown provider (unloads local-llama model if active)
+          await providerRegistry.shutdown();
+        } catch {
+          // Ignore shutdown errors on exit
+        }
+        exit();
+        // Force process exit after a short delay to ensure cleanup
+        setTimeout(() => process.exit(0), 100);
+      })();
     }
   });
 
@@ -630,6 +896,30 @@ Breakdown by type:
         </Box>
       )}
 
+      {state === "upgradeConfirm" && upgradeInfo && (
+        <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor="cyan" padding={1}>
+          <Box marginBottom={1}>
+            <Text color="cyan" bold>Upgrade Clarissa?</Text>
+          </Box>
+          <Box marginBottom={1}>
+            <Text>Current version: </Text>
+            <Text color="gray">{upgradeInfo.current}</Text>
+          </Box>
+          <Box marginBottom={1}>
+            <Text>Latest version: </Text>
+            <Text color="green" bold>{upgradeInfo.latest}</Text>
+          </Box>
+          <Box>
+            <Text color="gray">Proceed with upgrade? </Text>
+            <ConfirmInput
+              defaultChoice="confirm"
+              onConfirm={() => handleUpgradeConfirmation(true)}
+              onCancel={() => handleUpgradeConfirmation(false)}
+            />
+          </Box>
+        </Box>
+      )}
+
       {state === "tool" && currentTool && (
         <Box flexDirection="column" marginBottom={1}>
           <Box>
@@ -658,20 +948,28 @@ Breakdown by type:
         </Box>
       )}
 
+      {state === "selecting" && selectionOptions.length > 0 && (
+        <Box marginBottom={1}>
+          <InteractiveSelect
+            title={selectionTitle}
+            options={selectionOptions}
+            onSelect={handleSelectionComplete}
+            onCancel={handleSelectionCancel}
+          />
+        </Box>
+      )}
+
       {/* Command hints */}
       {showCommandHints && inputValue.startsWith("/") && (
-        <Box marginBottom={1} flexWrap="wrap">
+        <Box marginBottom={1}>
           <Text color="gray">Commands: </Text>
-          {SLASH_COMMANDS.filter((cmd) =>
-            cmd.toLowerCase().startsWith(inputValue.toLowerCase())
-          )
-            .slice(0, 8)
-            .map((cmd, i) => (
-              <Text key={cmd} color="cyan">
-                {i > 0 ? ", " : ""}
-                {cmd}
-              </Text>
-            ))}
+          <Text color="cyan">
+            {SLASH_COMMANDS.filter((cmd) =>
+              cmd.toLowerCase().startsWith(inputValue.toLowerCase())
+            )
+              .slice(0, 8)
+              .join(", ")}
+          </Text>
         </Box>
       )}
 

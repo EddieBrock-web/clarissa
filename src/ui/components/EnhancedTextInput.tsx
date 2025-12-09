@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useInput, Text } from "ink";
 import chalk from "chalk";
 import { enhancePromptPreservingCode } from "../../llm/enhance.ts";
@@ -54,6 +54,7 @@ export function EnhancedTextInput({
   const [value, setValue] = useState(defaultValue);
   const [cursorOffset, setCursorOffset] = useState(defaultValue.length);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const lastEscapeTime = useRef<number>(0);
 
   // Wrapper to call onChange when value changes
   const updateValue = useCallback((newValue: string) => {
@@ -94,6 +95,19 @@ export function EnhancedTextInput({
       // which corresponds to input === '\x10'
       if (input === "\x10" || (key.ctrl && input === "p")) {
         handleEnhance();
+        return;
+      }
+
+      // Double-escape to clear input
+      if (key.escape) {
+        const now = Date.now();
+        if (now - lastEscapeTime.current < 500) {
+          updateValue("");
+          setCursorOffset(0);
+          lastEscapeTime.current = 0;
+        } else {
+          lastEscapeTime.current = now;
+        }
         return;
       }
 

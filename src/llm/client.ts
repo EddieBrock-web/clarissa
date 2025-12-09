@@ -1,177 +1,100 @@
-import { OpenRouter } from "@openrouter/sdk";
-import { config } from "../config/index.ts";
+/**
+ * LLM Client for Clarissa
+ *
+ * This module provides a unified interface for LLM operations,
+ * supporting multiple providers (OpenRouter, LM Studio, local models).
+ */
+
+import { config, getLocalLlamaConfig, getProviderModels } from "../config/index.ts";
 import type { Message, ToolDefinition } from "./types.ts";
-import { usageTracker } from "./usage.ts";
+import { providerRegistry, type LLMProvider, type ProviderId } from "./providers/index.ts";
 
-// Retry configuration
-const RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 10000,
-  retryableStatusCodes: [429, 500, 502, 503, 504],
-};
+// Get custom model lists from config
+const providerModels = getProviderModels();
 
-/**
- * Sleep for a given number of milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Calculate exponential backoff delay with jitter
- */
-function getRetryDelay(attempt: number): number {
-  const exponentialDelay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
-  const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
-  return Math.min(exponentialDelay + jitter, RETRY_CONFIG.maxDelayMs);
-}
+// Initialize provider registry with config
+providerRegistry.configure({
+  openrouterApiKey: config.OPENROUTER_API_KEY,
+  openrouterModel: config.OPENROUTER_MODEL,
+  openrouterModels: providerModels.openrouter,
+  openaiApiKey: config.OPENAI_API_KEY,
+  openaiModel: config.OPENAI_MODEL,
+  openaiModels: providerModels.openai,
+  anthropicApiKey: config.ANTHROPIC_API_KEY,
+  anthropicModel: config.ANTHROPIC_MODEL,
+  anthropicModels: providerModels.anthropic,
+  preferredProvider: config.PROVIDER as ProviderId | undefined,
+  lmstudioModel: config.LMSTUDIO_MODEL,
+  localModelPath: config.LOCAL_MODEL_PATH,
+  localLlamaConfig: getLocalLlamaConfig(),
+});
 
 /**
- * Check if an error is retryable
- */
-function isRetryableError(error: unknown): boolean {
-  if (error instanceof Error) {
-    // Check for rate limit or server errors in message
-    const message = error.message.toLowerCase();
-    if (message.includes("rate limit") || message.includes("too many requests")) {
-      return true;
-    }
-    if (message.includes("timeout") || message.includes("timed out")) {
-      return true;
-    }
-    if (message.includes("network") || message.includes("connection")) {
-      return true;
-    }
-    // Check for HTTP status codes in error
-    for (const code of RETRY_CONFIG.retryableStatusCodes) {
-      if (message.includes(String(code))) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-// Type for streaming chunk from OpenRouter SDK
-interface SDKStreamChunk {
-  id: string;
-  choices: Array<{
-    delta: {
-      role?: string;
-      content?: string | null;
-      toolCalls?: Array<{
-        index?: number;
-        id?: string;
-        function?: {
-          name?: string;
-          arguments?: string;
-        };
-      }>;
-    };
-    finishReason: string | null;
-    index: number;
-  }>;
-}
-
-/**
- * Transform our Message format to SDK format (snake_case -> camelCase)
- */
-function transformMessagesForSDK(messages: Message[]): Parameters<OpenRouter["chat"]["send"]>[0]["messages"] {
-  return messages.map((msg) => {
-    if (msg.role === "tool") {
-      return {
-        role: "tool" as const,
-        content: msg.content || "",
-        toolCallId: msg.tool_call_id || "",
-      };
-    }
-    if (msg.role === "assistant" && msg.tool_calls) {
-      return {
-        role: "assistant" as const,
-        content: msg.content,
-        toolCalls: msg.tool_calls.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: tc.function,
-        })),
-      };
-    }
-    return {
-      role: msg.role,
-      content: msg.content || "",
-    };
-  }) as Parameters<OpenRouter["chat"]["send"]>[0]["messages"];
-}
-
-/**
- * OpenRouter client wrapper for Clarissa
+ * LLM Client that uses the provider abstraction
  */
 class LLMClient {
-  private client: OpenRouter;
+  private provider: LLMProvider | null = null;
+  private initPromise: Promise<void> | null = null;
 
-  constructor() {
-    this.client = new OpenRouter({
-      apiKey: config.OPENROUTER_API_KEY,
-    });
+  /**
+   * Ensure provider is initialized
+   */
+  private async ensureProvider(): Promise<LLMProvider> {
+    if (this.provider) return this.provider;
+
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        try {
+          this.provider = await providerRegistry.getActiveProvider();
+        } catch (error) {
+          // Reset initPromise on failure so retry is possible
+          this.initPromise = null;
+          throw error;
+        }
+      })();
+    }
+
+    await this.initPromise;
+
+    if (!this.provider) {
+      throw new Error("Failed to initialize LLM provider");
+    }
+
+    return this.provider;
   }
 
   /**
-   * Send a chat completion request (non-streaming) with retry logic
+   * Get the current provider info
+   */
+  async getProviderInfo(): Promise<{ id: string; name: string }> {
+    const provider = await this.ensureProvider();
+    return { id: provider.info.id, name: provider.info.name };
+  }
+
+  /**
+   * Get the maximum number of tools the current provider can handle
+   * Returns undefined if no limit
+   */
+  async getMaxTools(): Promise<number | undefined> {
+    const provider = await this.ensureProvider();
+    return provider.info.capabilities.maxTools;
+  }
+
+  /**
+   * Send a chat completion request (non-streaming)
    */
   async chat(
     messages: Message[],
     tools?: ToolDefinition[],
     model?: string
   ): Promise<Message> {
-    let lastError: Error | undefined;
-
-    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
-      try {
-        const response = await this.client.chat.send({
-          model: model || config.OPENROUTER_MODEL,
-          messages: transformMessagesForSDK(messages),
-          tools: tools as Parameters<typeof this.client.chat.send>[0]["tools"],
-        });
-
-        const choice = response.choices?.[0];
-        if (!choice) {
-          throw new Error("No response from LLM");
-        }
-
-        // Convert SDK toolCalls to our format
-        const toolCalls = choice.message?.toolCalls?.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: {
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          },
-        }));
-
-        return {
-          role: "assistant",
-          content: typeof choice.message?.content === "string" ? choice.message.content : null,
-          tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
-        };
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        if (attempt < RETRY_CONFIG.maxRetries && isRetryableError(error)) {
-          const delay = getRetryDelay(attempt);
-          await sleep(delay);
-          continue;
-        }
-
-        throw lastError;
-      }
-    }
-
-    throw lastError ?? new Error("Unexpected retry loop exit");
+    const provider = await this.ensureProvider();
+    const response = await provider.chat(messages, { model, tools });
+    return response.message;
   }
 
   /**
-   * Accumulate streaming chunks into a complete message with retry logic
+   * Accumulate streaming chunks into a complete message
    */
   async chatStreamComplete(
     messages: Message[],
@@ -179,96 +102,42 @@ class LLMClient {
     model?: string,
     onChunk?: (content: string) => void
   ): Promise<Message> {
-    let lastError: Error | undefined;
+    const provider = await this.ensureProvider();
+    const response = await provider.chat(messages, { model, tools, onChunk });
+    return response.message;
+  }
 
-    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
-      try {
-        const stream = await this.client.chat.send({
-          model: model || config.OPENROUTER_MODEL,
-          messages: transformMessagesForSDK(messages),
-          tools: tools as Parameters<typeof this.client.chat.send>[0]["tools"],
-          stream: true,
-        });
+  /**
+   * Switch to a different provider
+   */
+  async switchProvider(providerId: ProviderId): Promise<void> {
+    await providerRegistry.setActiveProvider(providerId);
+    this.provider = await providerRegistry.getActiveProvider();
+    this.initPromise = null;
+  }
 
-        let content = "";
-        const toolCallsMap: Map<number, {
-          id: string;
-          type: "function";
-          function: { name: string; arguments: string };
-        }> = new Map();
+  /**
+   * Get available providers and their status
+   */
+  async getAvailableProviders(): Promise<
+    Array<{ id: ProviderId; name: string; available: boolean; reason?: string }>
+  > {
+    const statuses = await providerRegistry.getProviderStatuses();
+    const providers = providerRegistry.getRegisteredProviders();
 
-        for await (const rawChunk of stream) {
-          const chunk = rawChunk as unknown as SDKStreamChunk;
-          const delta = chunk.choices?.[0]?.delta;
-          if (!delta) continue;
-
-          // Handle content
-          if (delta.content) {
-            content += delta.content;
-            onChunk?.(delta.content);
-          }
-
-          // Handle tool calls (SDK uses camelCase: toolCalls)
-          if (delta.toolCalls) {
-            for (const tc of delta.toolCalls) {
-              const index = tc.index ?? 0;
-
-              if (tc.id) {
-                // New tool call starting
-                toolCallsMap.set(index, {
-                  id: tc.id,
-                  type: "function",
-                  function: {
-                    name: tc.function?.name || "",
-                    arguments: tc.function?.arguments || "",
-                  },
-                });
-              } else if (tc.function) {
-                // Continuing existing tool call
-                const existing = toolCallsMap.get(index);
-                if (existing) {
-                  if (tc.function.name) {
-                    existing.function.name += tc.function.name;
-                  }
-                  if (tc.function.arguments) {
-                    existing.function.arguments += tc.function.arguments;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        const toolCalls = Array.from(toolCallsMap.values());
-
-        // Estimate token usage for streaming (rough approximation)
-        const promptText = messages.map((m) => m.content || "").join(" ");
-        const promptTokens = usageTracker.estimateTokens(promptText);
-        const completionTokens = usageTracker.estimateTokens(content);
-        usageTracker.addUsage(promptTokens, completionTokens);
-
-        return {
-          role: "assistant",
-          content: content || null,
-          tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-        };
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        if (attempt < RETRY_CONFIG.maxRetries && isRetryableError(error)) {
-          const delay = getRetryDelay(attempt);
-          await sleep(delay);
-          continue;
-        }
-
-        throw lastError;
-      }
-    }
-
-    throw lastError ?? new Error("Unexpected retry loop exit");
+    return providers.map((p) => {
+      const status = statuses.get(p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        available: status?.available ?? false,
+        reason: status?.reason,
+      };
+    });
   }
 }
 
 export const llmClient = new LLMClient();
 export { usageTracker } from "./usage.ts";
+export { providerRegistry } from "./providers/index.ts";
 

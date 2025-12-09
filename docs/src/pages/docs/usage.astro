@@ -122,6 +122,10 @@ import Docs from '../../layouts/Docs.astro';
         <td>Show or switch the current model</td>
       </tr>
       <tr>
+        <td><code>/provider [NAME]</code></td>
+        <td>Show or switch the LLM provider</td>
+      </tr>
+      <tr>
         <td><code>/mcp</code></td>
         <td>Show MCP server status</td>
       </tr>
@@ -232,6 +236,23 @@ Approve? (y/n)</code></pre>
   <pre><code>/model openai/gpt-4o</code></pre>
   <p>
     This is useful for switching between models with different capabilities or costs.
+  </p>
+
+  <h2>Switching Providers</h2>
+  <p>View the current provider:</p>
+  <pre><code>/provider</code></pre>
+  <p>Switch to a different LLM provider:</p>
+  <pre><code>/provider anthropic</code></pre>
+  <p>Available providers: <code>openrouter</code>, <code>openai</code>, <code>anthropic</code>, <code>apple-ai</code>, <code>lmstudio</code>, <code>local-llama</code></p>
+
+  <h2>Local Models</h2>
+  <p>Download GGUF models for local inference:</p>
+  <pre><code>clarissa download</code></pre>
+  <p>List downloaded models:</p>
+  <pre><code>clarissa models</code></pre>
+  <p>
+    Local models run entirely on your machine using node-llama-cpp, with no API calls required.
+    This is useful for privacy-sensitive work or offline usage.
   </p>
 
   <h2>Auto-Approve Mode</h2>

@@ -1,4 +1,4 @@
-import type { AnyTool } from "./base.ts";
+import type { AnyTool, ToolPriority } from "./base.ts";
 import { toolToDefinition } from "./base.ts";
 import { calculatorTool } from "./calculator.ts";
 import { bashTool } from "./bash.ts";
@@ -25,27 +25,25 @@ class ToolRegistry {
   private tools: Map<string, AnyTool> = new Map();
 
   constructor() {
-    // Register file tools
-    this.register(readFileTool);
-    this.register(writeFileTool);
-    this.register(patchFileTool);
-    this.register(listDirectoryTool);
-    this.register(searchFilesTool);
+    // Register core tools (priority 1) - essential for basic operations
+    this.register({ ...calculatorTool, priority: 1 as ToolPriority });
+    this.register({ ...bashTool, priority: 1 as ToolPriority });
+    this.register({ ...readFileTool, priority: 1 as ToolPriority });
+    this.register({ ...writeFileTool, priority: 1 as ToolPriority });
 
-    // Register git tools
-    this.register(gitStatusTool);
-    this.register(gitDiffTool);
-    this.register(gitLogTool);
-    this.register(gitAddTool);
-    this.register(gitCommitTool);
-    this.register(gitBranchTool);
+    // Register important tools (priority 2) - commonly used
+    this.register({ ...listDirectoryTool, priority: 2 as ToolPriority });
+    this.register({ ...patchFileTool, priority: 2 as ToolPriority });
+    this.register({ ...searchFilesTool, priority: 2 as ToolPriority });
+    this.register({ ...gitStatusTool, priority: 2 as ToolPriority });
+    this.register({ ...gitDiffTool, priority: 2 as ToolPriority });
 
-    // Register system tools
-    this.register(calculatorTool);
-    this.register(bashTool);
-
-    // Register utility tools
-    this.register(webFetchTool);
+    // Register extended tools (priority 3) - specialized
+    this.register({ ...gitLogTool, priority: 3 as ToolPriority });
+    this.register({ ...gitAddTool, priority: 3 as ToolPriority });
+    this.register({ ...gitCommitTool, priority: 3 as ToolPriority });
+    this.register({ ...gitBranchTool, priority: 3 as ToolPriority });
+    this.register({ ...webFetchTool, priority: 3 as ToolPriority });
   }
 
   /**
@@ -70,6 +68,49 @@ class ToolRegistry {
    */
   getDefinitions(): ToolDefinition[] {
     return Array.from(this.tools.values()).map(toolToDefinition);
+  }
+
+  /**
+   * Get tools sorted by priority (1=core, 2=important, 3=extended)
+   */
+  private getToolsSortedByPriority(): AnyTool[] {
+    return Array.from(this.tools.values()).sort((a, b) => {
+      const priorityA = a.priority ?? 3;
+      const priorityB = b.priority ?? 3;
+      return priorityA - priorityB;
+    });
+  }
+
+  /**
+   * Get tool definitions limited by max count, prioritizing higher priority tools
+   * @param maxTools - Maximum number of tools to return (undefined = all)
+   */
+  getDefinitionsLimited(maxTools?: number): ToolDefinition[] {
+    if (maxTools === undefined) {
+      return this.getDefinitions();
+    }
+
+    const sortedTools = this.getToolsSortedByPriority();
+    const limitedTools = sortedTools.slice(0, maxTools);
+    return limitedTools.map(toolToDefinition);
+  }
+
+  /**
+   * Get core tools only (priority 1)
+   */
+  getCoreDefinitions(): ToolDefinition[] {
+    return Array.from(this.tools.values())
+      .filter((t) => t.priority === 1)
+      .map(toolToDefinition);
+  }
+
+  /**
+   * Get core + important tools (priority 1 and 2)
+   */
+  getImportantDefinitions(): ToolDefinition[] {
+    return Array.from(this.tools.values())
+      .filter((t) => (t.priority ?? 3) <= 2)
+      .map(toolToDefinition);
   }
 
   /**
@@ -151,5 +192,5 @@ class ToolRegistry {
 }
 
 export const toolRegistry = new ToolRegistry();
-export { defineTool, type Tool, type ToolCategory, type AnyTool } from "./base.ts";
+export { defineTool, type Tool, type ToolCategory, type ToolPriority, type AnyTool } from "./base.ts";
 

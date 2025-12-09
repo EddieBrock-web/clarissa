@@ -131,6 +131,8 @@ export const gitCommitTool = defineTool({
 export const gitBranchTool = defineTool({
   name: "git_branch",
   description: "List, create, or switch branches.",
+  category: "git",
+  requiresConfirmation: true,
   parameters: z.object({
     action: z.enum(["list", "create", "switch"]).describe("Action to perform"),
     name: z.string().optional().describe("Branch name (required for create/switch)"),

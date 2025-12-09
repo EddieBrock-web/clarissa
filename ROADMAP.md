@@ -4,6 +4,50 @@
 
 ---
 
+## Completed Features (v1.2.0)
+
+### Apple Foundation Model with Tools
+- [x] Full tool calling support for Apple Intelligence on-device AI
+- [x] All built-in tools work with Apple Foundation Model (file ops, git, bash, web fetch)
+- [x] Intelligent tool limit handling (max 10 tools for optimal Apple AI performance)
+- [x] Channel token parsing for clean output from thinking models
+- [x] Automatic retry without tools when model returns null responses
+- [x] Real-time streaming with channel token filtering
+- [x] Comprehensive Apple AI test suite (`bun test:apple-ai`)
+
+## Completed Features (v1.1.0)
+
+### Multi-Provider LLM Support
+- [x] Provider abstraction layer with unified interface
+- [x] OpenRouter provider (cloud) - 100+ models
+- [x] OpenAI provider (cloud) - Direct GPT API
+- [x] Anthropic provider (cloud) - Direct Claude API
+- [x] Apple Intelligence provider (local) - macOS 26+ on-device AI
+- [x] LM Studio provider (local) - Desktop app integration
+- [x] Local Llama provider (local) - Direct GGUF inference via node-llama-cpp
+- [x] Provider switching with `/provider` command
+- [x] Automatic provider detection and priority selection
+- [x] Preferences persistence for last used provider/model
+
+### Local Model Support
+- [x] GGUF model download from Hugging Face (`clarissa download`)
+- [x] Curated recommended models list (Qwen 3, Gemma 3, Llama 4, DeepSeek R1, etc.)
+- [x] Download progress tracking
+- [x] Model listing (`clarissa models`)
+- [x] GPU layer configuration for local inference
+- [x] Flash attention support
+
+### Auto-Update System
+- [x] Version checking against npm registry
+- [x] `clarissa upgrade` command
+- [x] Package manager detection (bun, pnpm, npm)
+- [x] Background update notifications
+
+### API Improvements
+- [x] Retry logic with exponential backoff and jitter
+- [x] Rate limit handling for all providers
+- [x] Streaming support for all providers
+
 ## Completed Features (v1.0.0)
 
 ### Core Operations
@@ -63,17 +107,20 @@
 - [ ] HTTP/SSE MCP server transport
 - [ ] File context references
 - [ ] Image/vision analysis
+- [ ] Model delete command for local models
 
 ### Medium Term
 - [ ] Codebase indexing with embeddings
 - [ ] Semantic search across codebase
 - [ ] Model comparison mode
 - [ ] Fallback model configuration
+- [ ] Provider-specific model recommendations
 
 ### Long Term
 - [ ] Integrated linting with auto-fix
 - [ ] Test runner integration
 - [ ] Project scaffolding templates
+- [ ] Multi-agent collaboration
 
 ---
 

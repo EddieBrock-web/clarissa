@@ -15,26 +15,32 @@ export interface AgentCallbacks {
   onError?: (error: Error) => void;
 }
 
-const BASE_SYSTEM_PROMPT = `You are Clarissa, a helpful AI assistant with access to tools.
+/**
+ * Build the base system prompt with the given tool names
+ */
+function buildBaseSystemPrompt(toolNames: string[]): string {
+  return `You are Clarissa, a helpful AI assistant with access to tools.
 
 You can use the following tools:
-${toolRegistry.getToolNames().map((name) => `- ${name}`).join("\n")}
+${toolNames.map((name) => `- ${name}`).join("\n")}
 
 When you need to perform calculations, run commands, or interact with the system, use the appropriate tool.
 Always explain what you're doing and provide clear, helpful responses.
 If a tool fails, explain the error and suggest alternatives if possible.
 
 Be concise but thorough. Format your responses nicely for terminal display.`;
+}
 
 /**
  * Build the full system prompt including memories
  */
-async function buildSystemPrompt(): Promise<string> {
+async function buildSystemPrompt(toolNames: string[]): Promise<string> {
+  const basePrompt = buildBaseSystemPrompt(toolNames);
   const memories = await memoryManager.getForPrompt();
   if (memories) {
-    return `${BASE_SYSTEM_PROMPT}\n\n${memories}`;
+    return `${basePrompt}\n\n${memories}`;
   }
-  return BASE_SYSTEM_PROMPT;
+  return basePrompt;
 }
 
 /**
@@ -45,30 +51,35 @@ export class Agent {
   private callbacks: AgentCallbacks;
   private cachedSystemPrompt: string | null = null;
   private cachedMemoryVersion = -1;
+  private cachedToolNames: string[] = [];
 
   constructor(callbacks: AgentCallbacks = {}) {
     this.callbacks = callbacks;
-    // Initialize with base prompt; will be updated with memories on first run
-    this.messages.push({
-      role: "system",
-      content: BASE_SYSTEM_PROMPT,
-    });
+    // System prompt will be initialized on first run with correct tool names
   }
 
   /**
-   * Update the system prompt with current memories (cached)
+   * Update the system prompt with current memories and tool names (cached)
    */
-  private async updateSystemPrompt(): Promise<void> {
+  private async updateSystemPrompt(toolNames: string[]): Promise<void> {
     const currentVersion = memoryManager.getVersion();
+    const toolNamesChanged = JSON.stringify(toolNames) !== JSON.stringify(this.cachedToolNames);
 
-    // Only rebuild if memories have changed
-    if (this.cachedSystemPrompt === null || this.cachedMemoryVersion !== currentVersion) {
-      this.cachedSystemPrompt = await buildSystemPrompt();
+    // Only rebuild if memories or tool names have changed
+    if (this.cachedSystemPrompt === null || this.cachedMemoryVersion !== currentVersion || toolNamesChanged) {
+      this.cachedSystemPrompt = await buildSystemPrompt(toolNames);
       this.cachedMemoryVersion = currentVersion;
+      this.cachedToolNames = toolNames;
     }
 
+    // Update or add system message
     if (this.messages[0] && this.messages[0].role === "system") {
       this.messages[0].content = this.cachedSystemPrompt;
+    } else {
+      this.messages.unshift({
+        role: "system",
+        content: this.cachedSystemPrompt,
+      });
     }
   }
 
@@ -76,8 +87,14 @@ export class Agent {
    * Run the agent with a user message
    */
   async run(userMessage: string): Promise<string> {
-    // Update system prompt with current memories
-    await this.updateSystemPrompt();
+    // Get provider's max tools capability and select appropriate tool set
+    // Do this FIRST so we can build the system prompt with correct tool names
+    const maxTools = await llmClient.getMaxTools();
+    const tools = toolRegistry.getDefinitionsLimited(maxTools);
+    const toolNames = tools.map(t => t.function.name);
+
+    // Update system prompt with current memories and tool names
+    await this.updateSystemPrompt(toolNames);
 
     // Add user message
     this.messages.push({
@@ -95,7 +112,7 @@ export class Agent {
       // Get LLM response with streaming
       const response = await llmClient.chatStreamComplete(
         this.messages,
-        toolRegistry.getDefinitions(),
+        tools,
         agentConfig.model,
         this.callbacks.onStreamChunk
       );
@@ -147,6 +164,9 @@ export class Agent {
           });
         }
 
+        // Truncate context after adding tool results to stay within limits
+        this.messages = contextManager.truncateToFit(this.messages);
+
         // Continue the loop to get the next response
         continue;
       }
@@ -167,7 +187,8 @@ export class Agent {
    * Reset the conversation (keep system prompt)
    */
   reset(): void {
-    this.messages = [this.messages[0]!];
+    const systemMessage = this.messages.find((m) => m.role === "system");
+    this.messages = systemMessage ? [systemMessage] : [];
   }
 
   /**
@@ -182,7 +203,9 @@ export class Agent {
    */
   loadMessages(messages: Message[]): void {
     // Keep system prompt, add saved messages
-    this.messages = [this.messages[0]!, ...messages.filter((m) => m.role !== "system")];
+    const systemMessage = this.messages.find((m) => m.role === "system");
+    const savedMessages = messages.filter((m) => m.role !== "system");
+    this.messages = systemMessage ? [systemMessage, ...savedMessages] : savedMessages;
   }
 
   /**

@@ -12,9 +12,9 @@ import Docs from '../../layouts/Docs.astro';
 
   <h2>System Overview</h2>
   <p>
-    At its core, Clarissa connects user input to large language models via OpenRouter, with the ability
-    to execute tools and maintain conversation state. The architecture supports both interactive terminal
-    sessions and one-shot command execution.
+    At its core, Clarissa connects user input to large language models through a provider abstraction layer,
+    supporting both cloud APIs (OpenRouter, OpenAI, Anthropic) and local inference (LM Studio, Apple Intelligence,
+    GGUF models). The architecture supports both interactive terminal sessions and one-shot command execution.
   </p>
 
   <div class="diagram">
@@ -29,6 +29,7 @@ flowchart TB
     subgraph Core["Core Engine"]
         Agent["ReAct Agent<br/><small>src/agent.ts</small>"]
         LLM["LLM Client<br/><small>src/llm/client.ts</small>"]
+        Providers["Provider Registry<br/><small>src/llm/providers/</small>"]
         Context["Context Manager<br/><small>src/llm/context.ts</small>"]
     end
 
@@ -54,11 +55,13 @@ flowchart TB
     Interactive --> App
     App --> Agent
     Agent --> LLM
+    LLM --> Providers
     Agent --> Context
     Agent --> Registry
     Registry --> BuiltIn
     Registry --> MCP
-    LLM -.->|OpenRouter API| External["External LLMs"]
+    Providers -.->|Cloud APIs| External["OpenRouter/OpenAI/Anthropic"]
+    Providers -.->|Local| Local["LM Studio/Apple AI/GGUF"]
     MCP -.->|stdio| ExtMCP["MCP Servers"]
     Agent --> Session
     Agent --> Memory
@@ -85,8 +88,21 @@ flowchart TB
 
   <h3>LLM Client (src/llm/client.ts)</h3>
   <p>
-    Wraps the OpenRouter SDK to provide streaming chat completions with tool support.
-    Includes retry logic with exponential backoff for transient failures.
+    Provides a unified interface for streaming chat completions with tool support across all providers.
+    Includes retry logic with exponential backoff and jitter for transient failures.
+  </p>
+
+  <h3>Provider Registry (src/llm/providers/)</h3>
+  <p>
+    Manages multiple LLM providers with a common interface. Each provider implements:
+  </p>
+  <ul>
+    <li><code>checkAvailability()</code> - Verify the provider is configured and accessible</li>
+    <li><code>chat()</code> - Send messages and receive streaming responses</li>
+    <li><code>initialize()</code> / <code>shutdown()</code> - Lifecycle management</li>
+  </ul>
+  <p>
+    Supported providers: OpenRouter, OpenAI, Anthropic, Apple Intelligence, LM Studio, Local Llama (GGUF).
   </p>
 
   <h3>Context Manager (src/llm/context.ts)</h3>
@@ -265,8 +281,12 @@ flowchart TD
         <td>Declarative UI with component model, familiar React patterns, rich ecosystem</td>
       </tr>
       <tr>
-        <td><strong>OpenRouter</strong></td>
-        <td>Single API for multiple LLM providers, easy model switching, unified billing</td>
+        <td><strong>Multi-Provider Architecture</strong></td>
+        <td>Unified interface for cloud (OpenRouter, OpenAI, Anthropic) and local (Apple Intelligence, LM Studio, GGUF) providers</td>
+      </tr>
+      <tr>
+        <td><strong>Apple Intelligence</strong></td>
+        <td>On-device AI with full tool calling support, no API keys required, privacy-focused local inference</td>
       </tr>
       <tr>
         <td><strong>Zod Validation</strong></td>
@@ -295,15 +315,24 @@ flowchart TD
   <pre><code>src/
   index.tsx        # CLI entry point, argument parsing
   agent.ts         # ReAct agent loop implementation
+  update.ts        # Auto-update and upgrade functionality
   config/          # Environment validation (Zod), model config
   llm/
-    client.ts      # OpenRouter SDK wrapper with streaming
+    client.ts      # Unified LLM client with streaming
     context.ts     # Token tracking, context truncation
     types.ts       # Message and tool type definitions
+    providers/     # Multi-provider abstraction layer
+      index.ts     # Provider registry and auto-detection
+      openrouter.ts, openai.ts, anthropic.ts  # Cloud providers
+      apple-ai.ts, lmstudio.ts, local-llama.ts  # Local providers
   mcp/
     client.ts      # MCP server connections, tool bridging
   memory/
     index.ts       # Long-term memory persistence
+  models/
+    download.ts    # GGUF model download from Hugging Face
+  preferences/
+    index.ts       # User preferences persistence
   session/
     index.ts       # Conversation session management
   tools/

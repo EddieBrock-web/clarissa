@@ -61,7 +61,7 @@ async function getCachedUpdate(): Promise<string | null> {
 /**
  * Fetch latest version from npm registry
  */
-async function fetchLatestVersion(): Promise<string | null> {
+export async function fetchLatestVersion(): Promise<string | null> {
   try {
     const response = await fetch(
       `https://registry.npmjs.org/${PACKAGE_NAME}/latest`,
@@ -78,7 +78,7 @@ async function fetchLatestVersion(): Promise<string | null> {
 /**
  * Compare semver versions - returns true if latest > current
  */
-function isNewerVersion(current: string, latest: string): boolean {
+export function isNewerVersion(current: string, latest: string): boolean {
   const currentParts = current.split(".").map(Number);
   const latestParts = latest.split(".").map(Number);
 

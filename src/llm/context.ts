@@ -3,6 +3,11 @@ import { usageTracker } from "./usage.ts";
 
 // Default context window sizes for common models
 const MODEL_CONTEXT_SIZES: Record<string, number> = {
+  // Apple AI (on-device) - very limited context (~9100 chars = ~2275 tokens)
+  // But with 10 tools (~5000 chars = ~1250 tokens), only ~1000 tokens left for messages
+  "apple-ai": 2000,
+  "apple-on-device": 2000,
+  "Apple Foundation Model": 2000,
   // Anthropic models
   "anthropic/claude-sonnet-4": 200000,
   "anthropic/claude-opus-4": 200000,
@@ -21,8 +26,9 @@ const MODEL_CONTEXT_SIZES: Record<string, number> = {
   default: 128000,
 };
 
-// Reserve tokens for response
-const RESPONSE_RESERVE = 4096;
+// Reserve tokens for response (reduced for small context models)
+const DEFAULT_RESPONSE_RESERVE = 4096;
+const SMALL_CONTEXT_RESPONSE_RESERVE = 500; // For models with < 8000 token context
 
 export interface ContextStats {
   totalTokens: number;
@@ -65,6 +71,14 @@ class ContextManager {
   }
 
   /**
+   * Get the response reserve for the current model
+   * Smaller context models need smaller reserves
+   */
+  private getResponseReserve(): number {
+    return this.maxTokens < 8000 ? SMALL_CONTEXT_RESPONSE_RESERVE : DEFAULT_RESPONSE_RESERVE;
+  }
+
+  /**
    * Estimate tokens for a message
    */
   estimateMessageTokens(message: Message): number {
@@ -101,7 +115,7 @@ class ContextManager {
    */
   getStats(messages: Message[]): ContextStats {
     const totalTokens = this.estimateConversationTokens(messages);
-    const availableTokens = this.maxTokens - RESPONSE_RESERVE;
+    const availableTokens = this.maxTokens - this.getResponseReserve();
 
     return {
       totalTokens,
@@ -125,7 +139,7 @@ class ContextManager {
    * Ensures tool_calls and their results are kept together
    */
   truncateToFit(messages: Message[]): Message[] {
-    const availableTokens = this.maxTokens - RESPONSE_RESERVE;
+    const availableTokens = this.maxTokens - this.getResponseReserve();
     let totalTokens = this.estimateConversationTokens(messages);
 
     if (totalTokens <= availableTokens) {
@@ -221,7 +235,7 @@ class ContextManager {
     return {
       ...stats,
       model: this.currentModel,
-      responseReserve: RESPONSE_RESERVE,
+      responseReserve: this.getResponseReserve(),
       breakdown,
     };
   }

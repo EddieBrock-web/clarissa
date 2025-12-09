@@ -7,21 +7,12 @@ import type { ToolDefinition } from "../llm/types.ts";
 export type ToolCategory = "file" | "git" | "system" | "mcp" | "utility";
 
 /**
- * Internal Zod definition structure for type inspection
+ * Tool priority levels - higher priority tools are included first for limited providers
+ * Priority 1 = core tools always included
+ * Priority 2 = important tools included when space allows
+ * Priority 3 = extended tools only for capable providers
  */
-interface ZodDef {
-  typeName?: string;
-  description?: string;
-  type?: ZodType;
-  innerType?: ZodType;
-}
-
-/**
- * Safely cast Zod internal definition
- */
-function getZodDef(schema: ZodType): ZodDef {
-  return schema._def as unknown as ZodDef;
-}
+export type ToolPriority = 1 | 2 | 3;
 
 /**
  * Base interface for a tool that the agent can use
@@ -30,6 +21,8 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   name: string;
   description: string;
   category?: ToolCategory;
+  /** Priority for tool selection (1=core, 2=important, 3=extended). Default: 3 */
+  priority?: ToolPriority;
   requiresConfirmation?: boolean;
   parameters: ZodType<TInput>;
   execute: (input: TInput) => Promise<TOutput>;
@@ -42,72 +35,16 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
 export type AnyTool = Tool<any, any>;
 
 /**
- * Convert a Zod schema to JSON Schema for OpenRouter API
+ * Convert a Zod schema to JSON Schema for LLM tool definitions.
+ * Uses Zod v4's native toJSONSchema function.
  */
 function zodToJsonSchema(schema: ZodType): Record<string, unknown> {
-  // Simple conversion for common Zod types
-  // For production, consider using zod-to-json-schema package
-  const def = getZodDef(schema);
-  const typeName = def.typeName;
+  const jsonSchema = z.toJSONSchema(schema);
 
-  if (typeName === "ZodObject") {
-    const shape = (schema as z.ZodObject<z.ZodRawShape>).shape;
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-
-    for (const [key, value] of Object.entries(shape)) {
-      const zodValue = value as ZodType;
-      properties[key] = zodToJsonSchema(zodValue);
-
-      // Check if field is optional
-      const innerDef = getZodDef(zodValue);
-      if (innerDef.typeName !== "ZodOptional") {
-        required.push(key);
-      }
-    }
-
-    return {
-      type: "object",
-      properties,
-      required: required.length > 0 ? required : undefined,
-    };
-  }
-
-  if (typeName === "ZodString") {
-    const result: Record<string, unknown> = { type: "string" };
-    if (def.description) result.description = def.description;
-    return result;
-  }
-
-  if (typeName === "ZodNumber") {
-    const result: Record<string, unknown> = { type: "number" };
-    if (def.description) result.description = def.description;
-    return result;
-  }
-
-  if (typeName === "ZodBoolean") {
-    const result: Record<string, unknown> = { type: "boolean" };
-    if (def.description) result.description = def.description;
-    return result;
-  }
-
-  if (typeName === "ZodArray" && def.type) {
-    return {
-      type: "array",
-      items: zodToJsonSchema(def.type),
-    };
-  }
-
-  if (typeName === "ZodOptional" && def.innerType) {
-    return zodToJsonSchema(def.innerType);
-  }
-
-  if (typeName === "ZodDefault" && def.innerType) {
-    return zodToJsonSchema(def.innerType);
-  }
-
-  // Fallback
-  return { type: "string" };
+  // Remove $schema field as it's not needed for tool definitions
+  // and remove additionalProperties to allow flexibility
+  const { $schema, additionalProperties, ...rest } = jsonSchema as Record<string, unknown>;
+  return rest;
 }
 
 /**

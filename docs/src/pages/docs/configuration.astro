@@ -6,67 +6,97 @@ import Docs from '../../layouts/Docs.astro';
   <h1>Configuration</h1>
   <p>
     Clarissa can be configured via a config file or environment variables.
-    The only required setting is your OpenRouter API key.
+    It supports multiple LLM providers including cloud APIs and local inference.
   </p>
+
+  <h2>LLM Providers</h2>
+  <p>Clarissa supports the following providers:</p>
+  <ul>
+    <li><strong>OpenRouter</strong> - Access to 100+ models (Claude, GPT-4, Gemini, Llama, etc.)</li>
+    <li><strong>OpenAI</strong> - Direct GPT API access</li>
+    <li><strong>Anthropic</strong> - Direct Claude API access</li>
+    <li><strong>Apple Intelligence</strong> - On-device AI for macOS 26+ with Apple Silicon</li>
+    <li><strong>LM Studio</strong> - Local inference via LM Studio desktop app</li>
+    <li><strong>Local Llama</strong> - Direct GGUF model inference via node-llama-cpp</li>
+  </ul>
 
   <h2>API Key Setup</h2>
   <p>
-    Get your API key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a>.
+    Set up at least one provider. Get API keys from:
   </p>
+  <ul>
+    <li><a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a></li>
+    <li><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI</a></li>
+    <li><a href="https://console.anthropic.com/" target="_blank" rel="noopener">Anthropic</a></li>
+  </ul>
 
   <h3>Option 1: Interactive Setup (Recommended)</h3>
   <p>Run the setup command:</p>
   <pre><code>clarissa init</code></pre>
-  <p>This will prompt for your API key and create the config file automatically.</p>
+  <p>This will prompt for API keys for each provider and create the config file automatically.</p>
 
-  <h3>Option 2: Environment Variable</h3>
-  <p>Set your API key as an environment variable:</p>
-  <pre><code>export OPENROUTER_API_KEY=your_api_key_here</code></pre>
-  <p>To make this permanent, add it to your shell configuration file (~/.zshrc or ~/.bashrc).</p>
+  <h3>Option 2: Environment Variables (Backup)</h3>
+  <p>Environment variables can be used as a backup when config file keys are not set:</p>
+  <pre><code>export OPENROUTER_API_KEY=your_openrouter_key
+export OPENAI_API_KEY=your_openai_key
+export ANTHROPIC_API_KEY=your_anthropic_key</code></pre>
 
   <h2>Configuration Options</h2>
-  <p>Settings can be specified in the config file or as environment variables. Environment variables take precedence.</p>
+  <p>Settings are specified in the config file. Environment variables serve as fallbacks.</p>
   <table>
     <thead>
       <tr>
         <th>Config Key</th>
-        <th>Env Variable</th>
-        <th>Default</th>
+        <th>Env Fallback</th>
         <th>Description</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td><code>apiKey</code></td>
+        <td><code>openrouterApiKey</code></td>
         <td><code>OPENROUTER_API_KEY</code></td>
-        <td>(required)</td>
-        <td>Your OpenRouter API key</td>
+        <td>OpenRouter API key</td>
       </tr>
       <tr>
-        <td><code>model</code></td>
-        <td><code>OPENROUTER_MODEL</code></td>
-        <td><code>anthropic/claude-sonnet-4</code></td>
-        <td>Default model to use</td>
+        <td><code>openaiApiKey</code></td>
+        <td><code>OPENAI_API_KEY</code></td>
+        <td>OpenAI API key</td>
+      </tr>
+      <tr>
+        <td><code>anthropicApiKey</code></td>
+        <td><code>ANTHROPIC_API_KEY</code></td>
+        <td>Anthropic API key</td>
       </tr>
       <tr>
         <td><code>maxIterations</code></td>
         <td><code>MAX_ITERATIONS</code></td>
-        <td><code>10</code></td>
-        <td>Maximum tool execution iterations per request</td>
+        <td>Maximum tool iterations (default: 10)</td>
       </tr>
       <tr>
         <td><code>debug</code></td>
         <td><code>DEBUG</code></td>
-        <td><code>false</code></td>
-        <td>Enable debug logging</td>
+        <td>Enable debug logging (default: false)</td>
       </tr>
     </tbody>
   </table>
 
+  <h2>Provider Selection</h2>
+  <p>Clarissa automatically detects available providers in this priority order:</p>
+  <ol>
+    <li><strong>OpenRouter</strong> - If OpenRouter API key is configured</li>
+    <li><strong>OpenAI</strong> - If OpenAI API key is configured</li>
+    <li><strong>Anthropic</strong> - If Anthropic API key is configured</li>
+    <li><strong>Apple Intelligence</strong> - If on macOS 26+ with Apple Silicon</li>
+    <li><strong>LM Studio</strong> - If LM Studio is running with a model loaded</li>
+    <li><strong>Local Llama</strong> - If a local model path is configured</li>
+  </ol>
+  <p>Switch providers at runtime with the <code>/provider</code> command. Your selection persists across sessions.</p>
+
   <h3>Example Config File</h3>
   <pre><code set:html={`{
-  "apiKey": "sk-or-...",
-  "model": "anthropic/claude-sonnet-4",
+  "openrouterApiKey": "sk-or-...",
+  "openaiApiKey": "sk-...",
+  "anthropicApiKey": "sk-ant-...",
   "maxIterations": 10,
   "debug": false,
   "mcpServers": {
@@ -74,8 +104,49 @@ import Docs from '../../layouts/Docs.astro';
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
     }
+  },
+  "localLlama": {
+    "modelPath": "~/.clarissa/models/qwen3-8b-q4_k_m.gguf",
+    "gpuLayers": -1,
+    "contextSize": 8192,
+    "flashAttention": true
   }
 }`} /></pre>
+
+  <h3>Local Model Configuration</h3>
+  <p>For direct GGUF model inference, configure <code>localLlama</code> in your config:</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Property</th>
+        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>modelPath</code></td>
+        <td>string</td>
+        <td>Path to the GGUF model file</td>
+      </tr>
+      <tr>
+        <td><code>gpuLayers</code></td>
+        <td>number</td>
+        <td>Number of layers to offload to GPU (-1 for all)</td>
+      </tr>
+      <tr>
+        <td><code>contextSize</code></td>
+        <td>number</td>
+        <td>Context window size (default: 8192)</td>
+      </tr>
+      <tr>
+        <td><code>flashAttention</code></td>
+        <td>boolean</td>
+        <td>Enable flash attention for faster inference</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>Download models with <code>clarissa download</code> to get recommended GGUF models.</p>
 
   <h3>MCP Servers</h3>
   <p>
@@ -187,6 +258,14 @@ import Docs from '../../layouts/Docs.astro';
         <td>Upgrade to the latest version</td>
       </tr>
       <tr>
+        <td><code>clarissa download</code></td>
+        <td>Download GGUF models for local inference</td>
+      </tr>
+      <tr>
+        <td><code>clarissa models</code></td>
+        <td>List downloaded local models</td>
+      </tr>
+      <tr>
         <td><code>clarissa config</code></td>
         <td>View current configuration</td>
       </tr>
@@ -209,7 +288,7 @@ import Docs from '../../layouts/Docs.astro';
     <tbody>
       <tr>
         <td><code>~/.clarissa/config.json</code></td>
-        <td>Configuration file (API key, model, etc.)</td>
+        <td>Configuration file (API keys, model, provider settings)</td>
       </tr>
       <tr>
         <td><code>~/.clarissa/sessions/</code></td>
@@ -218,6 +297,14 @@ import Docs from '../../layouts/Docs.astro';
       <tr>
         <td><code>~/.clarissa/memories.json</code></td>
         <td>Persistent memories across sessions</td>
+      </tr>
+      <tr>
+        <td><code>~/.clarissa/preferences.json</code></td>
+        <td>User preferences (last provider, model, etc.)</td>
+      </tr>
+      <tr>
+        <td><code>~/.clarissa/models/</code></td>
+        <td>Downloaded GGUF models for local inference</td>
       </tr>
       <tr>
         <td><code>~/.clarissa/history.json</code></td>
