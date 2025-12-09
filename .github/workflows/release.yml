@@ -177,6 +177,7 @@ jobs:
   winget:
     needs: release
     runs-on: windows-latest
+    continue-on-error: true
     steps:
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v4
@@ -191,6 +192,6 @@ jobs:
           # Download wingetcreate
           Invoke-WebRequest -Uri "https://aka.ms/wingetcreate/latest" -OutFile wingetcreate.exe
 
-          # Update and submit manifest
+          # Update and submit manifest (will fail if package not yet in winget-pkgs)
           .\wingetcreate.exe update cameronrye.clarissa -u $url -v $version -t ${{ secrets.WINGET_PAT }} --submit
         shell: pwsh
