@@ -108,7 +108,7 @@ async function testToolCalling() {
       name: "calculator",
       description: "Performs basic math operations",
       parameters: {
-        type: "object",
+        type: "object" as const,
         properties: {
           operation: { type: "string", enum: ["add", "subtract", "multiply", "divide"] },
           a: { type: "number" },
@@ -138,7 +138,7 @@ async function testToolCalling() {
     info(`Tool calls: ${JSON.stringify(response.message?.tool_calls)}`);
 
     if (response.message?.tool_calls?.length) {
-      const toolCall = response.message.tool_calls[0];
+      const toolCall = response.message.tool_calls[0]!;
       pass(`Tool called: ${toolCall.function.name}`);
       pass(`Arguments: ${toolCall.function.arguments}`);
     } else if (response.message?.content) {

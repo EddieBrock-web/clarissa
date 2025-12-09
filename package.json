@@ -63,7 +63,6 @@
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
     "@lmstudio/sdk": "^1.5.0",
-    "@meridius-labs/apple-on-device-ai": "^1.6.2",
     "@modelcontextprotocol/sdk": "^1.24.3",
     "@openrouter/sdk": "^0.2.9",
     "ink": "^6.5.1",
@@ -74,6 +73,9 @@
     "react": "^19.2.1",
     "react-devtools-core": "^7.0.1",
     "zod": "^4.1.13"
+  },
+  "optionalDependencies": {
+    "@meridius-labs/apple-on-device-ai": "^1.6.2"
   },
   "engines": {
     "node": ">=18",

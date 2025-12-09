@@ -195,7 +195,7 @@ async function testToolCalling() {
       name: "calculator",
       description: "Performs basic math operations",
       parameters: {
-        type: "object",
+        type: "object" as const,
         properties: {
           operation: {
             type: "string",
@@ -217,7 +217,7 @@ async function testToolCalling() {
     );
 
     if (response.message?.tool_calls && response.message.tool_calls.length > 0) {
-      const toolCall = response.message.tool_calls[0];
+      const toolCall = response.message.tool_calls[0]!;
       pass(`Tool called: ${toolCall.function.name}`);
       pass(`Arguments: ${toolCall.function.arguments}`);
 
@@ -543,7 +543,7 @@ async function testToolResultFlow() {
       name: "calculator",
       description: "Performs basic math operations",
       parameters: {
-        type: "object",
+        type: "object" as const,
         properties: {
           expression: { type: "string", description: "The math expression to calculate" }
         },
@@ -573,7 +573,7 @@ async function testToolResultFlow() {
       return;
     }
 
-    const toolCall = response1.message.tool_calls[0];
+    const toolCall = response1.message.tool_calls[0]!;
     pass(`Tool called: ${toolCall.function.name}`);
     pass(`Arguments: ${toolCall.function.arguments}`);
 
