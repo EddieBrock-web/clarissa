@@ -1,6 +1,30 @@
 import Foundation
+import os.log
 #if canImport(FoundationModels)
 import FoundationModels
+
+// MARK: - Debug Logging
+
+/// Logger for tool debugging
+/// Community insight: Use DEBUG logging to debug tool invocation issues
+private let toolLogger = Logger(subsystem: "dev.rye.Clarissa", category: "AppleTools")
+
+/// Log tool call for debugging
+@inline(__always)
+private func logToolCall(_ name: String, _ arguments: Any) {
+    #if DEBUG
+    toolLogger.debug("Tool '\(name)' called with: \(String(describing: arguments))")
+    #endif
+}
+
+/// Log tool result for debugging
+@inline(__always)
+private func logToolResult(_ name: String, _ result: String) {
+    #if DEBUG
+    let truncated = result.count > 200 ? String(result.prefix(200)) + "..." : result
+    toolLogger.debug("Tool '\(name)' returned: \(truncated)")
+    #endif
+}
 
 // MARK: - Weather Tool
 
@@ -32,6 +56,7 @@ struct AppleWeatherTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         var dict: [String: Any] = [:]
         if let v = arguments.location { dict["location"] = v }
         if let v = arguments.latitude { dict["latitude"] = v }
@@ -39,7 +64,9 @@ struct AppleWeatherTool: Tool {
         if let v = arguments.forecast { dict["forecast"] = v }
 
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -64,9 +91,12 @@ struct AppleCalculatorTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         let dict: [String: Any] = ["expression": arguments.expression]
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -112,6 +142,7 @@ struct AppleCalendarTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         var dict: [String: Any] = ["action": arguments.action]
         if let v = arguments.title { dict["title"] = v }
         if let v = arguments.startDate { dict["startDate"] = v }
@@ -122,7 +153,9 @@ struct AppleCalendarTool: Tool {
         if let v = arguments.query { dict["query"] = v }
 
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -156,13 +189,16 @@ struct AppleContactsTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         var dict: [String: Any] = ["action": arguments.action]
         if let v = arguments.query { dict["query"] = v }
         if let v = arguments.contactId { dict["contactId"] = v }
         if let v = arguments.limit { dict["limit"] = v }
 
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -206,6 +242,7 @@ struct AppleRemindersTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         var dict: [String: Any] = ["action": arguments.action]
         if let v = arguments.title { dict["title"] = v }
         if let v = arguments.notes { dict["notes"] = v }
@@ -215,7 +252,9 @@ struct AppleRemindersTool: Tool {
         if let v = arguments.listName { dict["listName"] = v }
 
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -240,11 +279,14 @@ struct AppleLocationTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         var dict: [String: Any] = [:]
         if let v = arguments.includeAddress { dict["includeAddress"] = v }
 
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -275,12 +317,15 @@ struct AppleWebFetchTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         var dict: [String: Any] = ["url": arguments.url]
         if let v = arguments.format { dict["format"] = v }
         if let v = arguments.maxLength { dict["maxLength"] = v }
 
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 
@@ -305,9 +350,12 @@ struct AppleRememberTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        logToolCall(name, arguments)
         let dict: [String: Any] = ["information": arguments.information]
         let jsonString = dict.toJSONString()
-        return try await underlyingTool.execute(arguments: jsonString)
+        let result = try await underlyingTool.execute(arguments: jsonString)
+        logToolResult(name, result)
+        return result
     }
 }
 

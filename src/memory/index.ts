@@ -10,6 +10,9 @@ const MAX_MEMORIES = 100;
 /** Maximum number of recent memories to include in prompt (matches iOS) */
 const MAX_MEMORIES_FOR_PROMPT = 20;
 
+/** Maximum character length for a single memory (matches iOS) */
+const MAX_MEMORY_LENGTH = 500;
+
 export interface Memory {
   id: string;
   content: string;
@@ -56,6 +59,43 @@ class MemoryManager {
   }
 
   /**
+   * Sanitize memory content to prevent prompt injection attacks (matches iOS)
+   * Removes instruction override attempts and limits length
+   */
+  private sanitize(content: string): string {
+    let sanitized = content.trim();
+
+    // Remove potential instruction override attempts (case-insensitive)
+    const dangerousPatterns = [
+      /SYSTEM:/gi,
+      /INSTRUCTIONS:/gi,
+      /IGNORE\s*(PREVIOUS|ALL|ABOVE)/gi,
+      /OVERRIDE/gi,
+      /DISREGARD/gi,
+      /FORGET\s*(PREVIOUS|ALL|ABOVE)/gi,
+      /NEW\s*INSTRUCTIONS:/gi,
+      /\[SYSTEM\]/gi,
+      /\[INST\]/gi,
+      /<\|im_start\|>/gi,
+      /<\|im_end\|>/gi,
+    ];
+
+    for (const pattern of dangerousPatterns) {
+      sanitized = sanitized.replace(pattern, "");
+    }
+
+    // Remove markdown headers that could look like new sections
+    sanitized = sanitized.replace(/^#{1,6}\s+/gm, "");
+
+    // Limit length to prevent context overflow
+    if (sanitized.length > MAX_MEMORY_LENGTH) {
+      sanitized = sanitized.slice(0, MAX_MEMORY_LENGTH) + "...";
+    }
+
+    return sanitized;
+  }
+
+  /**
    * Load memories from disk
    */
   async load(): Promise<void> {
@@ -96,9 +136,12 @@ class MemoryManager {
       return null;
     }
 
+    // Sanitize content before storing (iOS pattern)
+    const sanitizedContent = this.sanitize(content);
+
     const memory: Memory = {
       id: this.generateId(),
-      content: content.trim(),
+      content: sanitizedContent,
       createdAt: new Date().toISOString(),
     };
 

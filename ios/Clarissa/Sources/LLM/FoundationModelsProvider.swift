@@ -19,6 +19,10 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
     /// Access to the tool registry for native tool calling
     private let toolRegistry: ToolRegistry
 
+    /// Prevents concurrent respond() calls which cause crashes
+    /// Community insight: "Don't call respond(to:) on a session again before it returns - this causes a crash"
+    private var isProcessing = false
+
     @MainActor
     init(toolRegistry: ToolRegistry = .shared) {
         self.toolRegistry = toolRegistry
@@ -113,6 +117,14 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
         AsyncThrowingStream { continuation in
             let task = Task { @MainActor in
                 #if canImport(FoundationModels)
+                // Prevent concurrent respond() calls - causes crash per community insights
+                guard !self.isProcessing else {
+                    continuation.finish(throwing: FoundationModelsError.concurrentRequests)
+                    return
+                }
+                self.isProcessing = true
+                defer { self.isProcessing = false }
+
                 do {
                     // Check availability with detailed status
                     switch SystemLanguageModel.default.availability {

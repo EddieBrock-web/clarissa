@@ -1,5 +1,8 @@
 import ClarissaKit
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 @main
 struct ClarissaApp: App {
@@ -7,12 +10,19 @@ struct ClarissaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if appState.isOnboardingComplete {
-                ContentView()
-                    .environmentObject(appState)
-            } else {
-                OnboardingView()
-                    .environmentObject(appState)
+            Group {
+                if appState.isOnboardingComplete {
+                    ContentView()
+                        .environmentObject(appState)
+                } else {
+                    OnboardingView()
+                        .environmentObject(appState)
+                }
+            }
+            .task {
+                // Prewarm Foundation Models at launch for faster first response
+                // Community insight: "Call prewarm() when you're confident the user will use LLM features"
+                await Self.prewarmFoundationModels()
             }
         }
         #if os(macOS)
@@ -24,5 +34,15 @@ struct ClarissaApp: App {
         }
         #endif
     }
-}
 
+    /// Prewarm the Foundation Models session for faster first response
+    private static func prewarmFoundationModels() async {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            guard SystemLanguageModel.default.availability == .available else { return }
+            let session = LanguageModelSession()
+            session.prewarm()
+        }
+        #endif
+    }
+}

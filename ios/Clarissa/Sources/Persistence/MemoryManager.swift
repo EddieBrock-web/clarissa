@@ -26,18 +26,47 @@ actor MemoryManager {
         }
     }
 
+    /// Sanitize memory content to prevent prompt injection
+    /// Community insight: "Never interpolate untrusted user input into instructions"
+    private func sanitize(_ content: String) -> String {
+        var sanitized = content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Remove potential instruction override attempts
+            .replacingOccurrences(of: "SYSTEM:", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "INSTRUCTIONS:", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "IGNORE", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "OVERRIDE", with: "", options: .caseInsensitive)
+            // Remove markdown headers that could look like new sections
+            .replacingOccurrences(of: "##", with: "")
+            .replacingOccurrences(of: "#", with: "")
+
+        // Limit length to prevent context overflow
+        if sanitized.count > 500 {
+            sanitized = String(sanitized.prefix(500)) + "..."
+        }
+
+        return sanitized
+    }
+
     /// Add a new memory
     func add(_ content: String) async {
         await ensureLoaded()
 
+        // Sanitize content before storing
+        let sanitizedContent = sanitize(content)
+        guard !sanitizedContent.isEmpty else {
+            logger.info("Skipping empty memory after sanitization")
+            return
+        }
+
         // Check for duplicate content
-        let normalizedContent = content.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedContent = sanitizedContent.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if memories.contains(where: { $0.content.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == normalizedContent }) {
             logger.info("Skipping duplicate memory")
             return
         }
 
-        let memory = Memory(content: content)
+        let memory = Memory(content: sanitizedContent)
         memories.append(memory)
 
         // Trim old memories if needed
