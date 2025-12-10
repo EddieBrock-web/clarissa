@@ -16,8 +16,8 @@
     <string>APPL</string>
     <key>CFBundleExecutable</key>
     <string>Clarissa</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>UILaunchScreen</key>
     <dict>
         <key>UIColorName</key>
@@ -40,7 +40,7 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
-    
+
     <!-- Privacy Permissions -->
     <key>NSCalendarsUsageDescription</key>
     <string>Clarissa needs access to your calendar to create, view, and manage events on your behalf.</string>
@@ -48,6 +48,12 @@
     <string>Clarissa needs full access to your calendar to create, view, and manage events on your behalf.</string>
     <key>NSContactsUsageDescription</key>
     <string>Clarissa needs access to your contacts to help you find and reference contact information.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Clarissa needs your location to provide weather information and location-based assistance.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Clarissa needs access to your reminders to create and manage tasks on your behalf.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Clarissa needs full access to your reminders to create and manage tasks on your behalf.</string>
 </dict>
 </plist>
 

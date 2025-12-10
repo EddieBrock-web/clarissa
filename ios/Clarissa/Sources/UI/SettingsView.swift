@@ -78,11 +78,23 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        ToolSettingsView()
+                            .environmentObject(appState)
+                    } label: {
+                        HStack {
+                            Text("Configure Tools")
+                            Spacer()
+                            Text("\(ToolSettings.shared.enabledCount) enabled")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     Toggle("Auto-approve Tools", isOn: $autoApproveTools)
                 } header: {
                     Text("Tools")
                 } footer: {
-                    Text("When enabled, tools like Calendar will execute without asking for confirmation.")
+                    Text("Configure which tools are available. When auto-approve is enabled, tools execute without asking for confirmation.")
                 }
 
                 Section {

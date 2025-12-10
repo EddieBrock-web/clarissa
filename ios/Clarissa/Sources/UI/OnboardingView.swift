@@ -59,8 +59,22 @@ public struct OnboardingView: View {
             }
             #if os(iOS)
             .tabViewStyle(.page(indexDisplayMode: .always))
+            #else
+            .tabViewStyle(.automatic)
             #endif
-            
+
+            #if os(macOS)
+            // Page indicator for macOS
+            HStack(spacing: 8) {
+                ForEach(0..<pages.count, id: \.self) { index in
+                    Circle()
+                        .fill(index == currentPage ? ClarissaTheme.purple : Color.secondary.opacity(0.3))
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .padding(.bottom, 8)
+            #endif
+
             VStack(spacing: 16) {
                 if currentPage == pages.count - 1 {
                     Button {

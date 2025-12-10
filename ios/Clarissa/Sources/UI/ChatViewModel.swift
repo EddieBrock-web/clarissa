@@ -158,6 +158,12 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     }
 
     func startNewSession() {
+        // Cancel any running task first
+        currentTask?.cancel()
+        currentTask = nil
+        isLoading = false
+        canCancel = false
+
         Task {
             _ = await SessionManager.shared.startNewSession()
         }
@@ -191,6 +197,13 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
 
     /// Switch to a different session
     func switchToSession(id: UUID) async {
+        // Cancel any running task first
+        currentTask?.cancel()
+        currentTask = nil
+        isLoading = false
+        canCancel = false
+        streamingContent = ""
+
         // Save current session before switching
         await saveCurrentSession()
 

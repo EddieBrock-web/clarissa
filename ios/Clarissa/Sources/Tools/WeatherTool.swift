@@ -2,11 +2,14 @@ import Foundation
 import WeatherKit
 import CoreLocation
 
-/// Helper for getting current location
+/// Helper for getting current location - must be used from MainActor
 @available(iOS 16.0, macOS 13.0, *)
-private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate, @unchecked Sendable {
+@MainActor
+private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
     let locationManager = CLLocationManager()
-    var continuation: CheckedContinuation<CLLocation, Error>?
+    private var locationContinuation: CheckedContinuation<CLLocation, Error>?
+    private var authorizationContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
+    private var isWaitingForAuthorization = false
 
     override init() {
         super.init()
@@ -14,15 +17,70 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate, 
         locationManager.desiredAccuracy = kCLLocationAccuracyKilometer // Weather doesn't need high accuracy
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        continuation?.resume(returning: location)
-        continuation = nil
+    /// Request location with proper continuation handling
+    func requestLocation() async throws -> CLLocation {
+        return try await withCheckedThrowingContinuation { continuation in
+            self.locationContinuation = continuation
+            self.locationManager.requestLocation()
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        continuation?.resume(throwing: error)
-        continuation = nil
+    /// Request authorization and wait for user response
+    func requestAuthorizationAndWait() async -> CLAuthorizationStatus {
+        let currentStatus = locationManager.authorizationStatus
+
+        // If already determined, return immediately
+        guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+
+        // Mark that we're waiting so we know to resume the continuation
+        isWaitingForAuthorization = true
+
+        return await withCheckedContinuation { continuation in
+            self.authorizationContinuation = continuation
+            self.locationManager.requestWhenInUseAuthorization()
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor in
+            self.locationContinuation?.resume(returning: location)
+            self.locationContinuation = nil
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.locationContinuation?.resume(throwing: error)
+            self.locationContinuation = nil
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            // Only resume if we're actively waiting for authorization
+            guard self.isWaitingForAuthorization else { return }
+            self.isWaitingForAuthorization = false
+            self.authorizationContinuation?.resume(returning: status)
+            self.authorizationContinuation = nil
+        }
+    }
+}
+
+/// Actor to hold the MainActor-isolated WeatherLocationHelper
+@available(iOS 16.0, macOS 13.0, *)
+private actor WeatherLocationHelperHolder {
+    @MainActor private let helper = WeatherLocationHelper()
+
+    func requestAuthorizationAndWait() async -> CLAuthorizationStatus {
+        await helper.requestAuthorizationAndWait()
+    }
+
+    func requestLocation() async throws -> CLLocation {
+        try await helper.requestLocation()
     }
 }
 
@@ -36,7 +94,7 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
 
     private let weatherService = WeatherService.shared
     private let geocoder = CLGeocoder()
-    private let locationHelper = WeatherLocationHelper()
+    private let locationHelperHolder = WeatherLocationHelperHolder()
 
     var parametersSchema: [String: Any] {
         [
@@ -124,24 +182,23 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
 
     /// Get the user's current location
     private func getCurrentLocation() async throws -> CLLocation {
-        // Check authorization
-        let status = locationHelper.locationManager.authorizationStatus
+        // Request authorization and wait if needed
+        let status = await locationHelperHolder.requestAuthorizationAndWait()
+
+        // Check authorization status
         switch status {
-        case .notDetermined:
-            locationHelper.locationManager.requestWhenInUseAuthorization()
-            try await Task.sleep(nanoseconds: 500_000_000)
         case .denied, .restricted:
             throw ToolError.notAvailable("Location access denied. Please enable in Settings or specify a location.")
+        case .notDetermined:
+            throw ToolError.notAvailable("Location authorization not granted.")
         case .authorizedWhenInUse, .authorizedAlways:
             break
         @unknown default:
             break
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            locationHelper.continuation = continuation
-            locationHelper.locationManager.requestLocation()
-        }
+        // Get location
+        return try await locationHelperHolder.requestLocation()
     }
 
     private func formatCurrentWeather(_ current: CurrentWeather) -> [String: Any] {

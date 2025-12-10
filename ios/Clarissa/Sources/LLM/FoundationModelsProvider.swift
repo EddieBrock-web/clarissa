@@ -3,19 +3,26 @@ import Foundation
 import FoundationModels
 #endif
 
-/// Provider using Apple's on-device Foundation Models
+/// Provider using Apple's on-device Foundation Models with native tool calling
 @available(iOS 26.0, macOS 26.0, *)
 final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
     let name = "Apple Intelligence"
-    let maxTools = 10
 
-    /// Marker for tool calls in the response
-    private let toolCallStart = "<tool_call>"
-    private let toolCallEnd = "</tool_call>"
+    /// Maximum tools per session (Guide recommends 3-5 max)
+    let maxTools = maxToolsForFoundationModels
 
     #if canImport(FoundationModels)
     private var session: LanguageModelSession?
+    private var currentInstructions: String?
     #endif
+
+    /// Access to the tool registry for native tool calling
+    private let toolRegistry: ToolRegistry
+
+    @MainActor
+    init(toolRegistry: ToolRegistry = .shared) {
+        self.toolRegistry = toolRegistry
+    }
 
     var isAvailable: Bool {
         get async {
@@ -23,7 +30,9 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
             switch SystemLanguageModel.default.availability {
             case .available:
                 return true
-            case .unavailable:
+            case .unavailable(_):
+                return false
+            @unknown default:
                 return false
             }
             #else
@@ -32,165 +41,151 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
         }
     }
 
-    #if canImport(FoundationModels)
-    /// Create session with system prompt including tool definitions
-    private func createSession(systemPrompt: String?, tools: [ToolDefinition]) -> LanguageModelSession {
-        var fullPrompt = systemPrompt ?? ""
+    /// Get detailed availability status for UI feedback
+    var availabilityStatus: FoundationModelsAvailability {
+        get async {
+            #if canImport(FoundationModels)
+            switch SystemLanguageModel.default.availability {
+            case .available:
+                return .available
+            case .unavailable(.deviceNotEligible):
+                return .deviceNotEligible
+            case .unavailable(.appleIntelligenceNotEnabled):
+                return .appleIntelligenceNotEnabled
+            case .unavailable(.modelNotReady):
+                return .modelNotReady
+            case .unavailable(_):
+                return .unavailable
+            @unknown default:
+                return .unavailable
+            }
+            #else
+            return .unavailable
+            #endif
+        }
+    }
 
-        // Add tool definitions if we have tools
-        if !tools.isEmpty {
-            fullPrompt += "\n\n" + buildToolInstructions(tools: tools)
+    #if canImport(FoundationModels)
+    /// Create or reuse session with native tool support
+    /// Tools are registered directly with LanguageModelSession for native tool calling
+    @MainActor
+    private func getOrCreateSession(systemPrompt: String?) -> LanguageModelSession {
+        let instructionsText = systemPrompt ?? "You are Clarissa, a helpful AI assistant."
+
+        // Reuse existing session if instructions haven't changed
+        if let existingSession = session, currentInstructions == instructionsText {
+            return existingSession
         }
 
-        return LanguageModelSession {
-            fullPrompt
+        // Get Apple-native tools from the registry (limited to maxTools)
+        let appleTools = toolRegistry.getAppleToolsLimited(maxTools)
+
+        // Create Instructions struct as per the guide
+        let instructions = Instructions(instructionsText)
+
+        // Create session with tools and instructions using correct API
+        let newSession = LanguageModelSession(
+            tools: appleTools,
+            instructions: instructions
+        )
+
+        session = newSession
+        currentInstructions = instructionsText
+        return newSession
+    }
+
+    /// Prewarm the session for faster first response
+    @MainActor
+    func prewarm(with promptPrefix: String? = nil) async {
+        let session = getOrCreateSession(systemPrompt: nil)
+        if let prefix = promptPrefix {
+            await session.prewarm(promptPrefix: Prompt(prefix))
+        } else {
+            await session.prewarm()
         }
     }
     #endif
-
-    /// Build tool instructions for the system prompt
-    private func buildToolInstructions(tools: [ToolDefinition]) -> String {
-        var instructions = """
-        ## Available Tools
-
-        You have access to the following tools. To use a tool, respond with:
-        <tool_call>
-        {"name": "tool_name", "arguments": {"param1": "value1"}}
-        </tool_call>
-
-        IMPORTANT: When you need to use a tool, output ONLY the tool_call block. Do not include any other text before or after it. Wait for the tool result before continuing.
-
-        Tools:
-        """
-
-        for tool in tools {
-            instructions += "\n\n### \(tool.name)\n"
-            instructions += "\(tool.description)\n"
-            instructions += "Parameters: "
-            if let jsonData = try? JSONSerialization.data(withJSONObject: tool.parameters, options: [.sortedKeys]),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                instructions += jsonString
-            }
-        }
-
-        return instructions
-    }
-
-    /// Parse tool calls from the response content
-    private func parseToolCalls(from content: String) -> [ToolCall] {
-        var toolCalls: [ToolCall] = []
-        var searchRange = content.startIndex..<content.endIndex
-
-        while let startRange = content.range(of: toolCallStart, range: searchRange),
-              let endRange = content.range(of: toolCallEnd, range: startRange.upperBound..<content.endIndex) {
-
-            let jsonString = String(content[startRange.upperBound..<endRange.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if let jsonData = jsonString.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-               let name = json["name"] as? String {
-
-                // Get arguments as JSON string
-                var argumentsString = "{}"
-                if let arguments = json["arguments"] {
-                    if let argsData = try? JSONSerialization.data(withJSONObject: arguments),
-                       let argsStr = String(data: argsData, encoding: .utf8) {
-                        argumentsString = argsStr
-                    }
-                }
-
-                toolCalls.append(ToolCall(
-                    id: UUID().uuidString,
-                    name: name,
-                    arguments: argumentsString
-                ))
-            }
-
-            searchRange = endRange.upperBound..<content.endIndex
-        }
-
-        return toolCalls
-    }
-
-    /// Remove tool call markers from content for display
-    private func cleanContent(_ content: String) -> String {
-        var result = content
-        var searchRange = result.startIndex..<result.endIndex
-
-        while let startRange = result.range(of: toolCallStart, range: searchRange),
-              let endRange = result.range(of: toolCallEnd, range: startRange.upperBound..<result.endIndex) {
-            result.removeSubrange(startRange.lowerBound...endRange.upperBound)
-            searchRange = result.startIndex..<result.endIndex
-        }
-
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 
     func streamComplete(
         messages: [Message],
         tools: [ToolDefinition]
     ) -> AsyncThrowingStream<StreamChunk, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task { @MainActor in
                 #if canImport(FoundationModels)
                 do {
+                    // Check availability with detailed status
+                    switch SystemLanguageModel.default.availability {
+                    case .available:
+                        break // Continue with generation
+                    case .unavailable(.deviceNotEligible):
+                        continuation.finish(throwing: FoundationModelsError.deviceNotEligible)
+                        return
+                    case .unavailable(.appleIntelligenceNotEnabled):
+                        continuation.finish(throwing: FoundationModelsError.appleIntelligenceNotEnabled)
+                        return
+                    case .unavailable(.modelNotReady):
+                        continuation.finish(throwing: FoundationModelsError.modelNotReady)
+                        return
+                    case .unavailable(_):
+                        continuation.finish(throwing: FoundationModelsError.notAvailable)
+                        return
+                    @unknown default:
+                        continuation.finish(throwing: FoundationModelsError.notAvailable)
+                        return
+                    }
+
                     // Extract system prompt
                     let systemPrompt = messages.first { $0.role == .system }?.content
 
-                    // Create session with system prompt AND tool definitions
-                    let session = createSession(systemPrompt: systemPrompt, tools: tools)
-                    self.session = session
+                    // Get or create session with native tool support (reuses if unchanged)
+                    let session = getOrCreateSession(systemPrompt: systemPrompt)
 
-                    // Build the user prompt from messages (excluding system)
-                    let prompt = buildPrompt(from: messages)
+                    // Build the user prompt from messages
+                    let promptText = buildPrompt(from: messages)
 
-                    // Stream response
+                    // Create Prompt struct as per the guide
+                    let prompt = Prompt(promptText)
+
+                    // Check for cancellation before starting stream
+                    try Task.checkCancellation()
+
+                    // Stream response using correct API: streamResponse(to: Prompt)
+                    // The stream yields ResponseStream.Snapshot with .content property
                     let stream = session.streamResponse(to: prompt)
-
                     var lastContent = ""
-                    var fullContent = ""
 
-                    for try await partial in stream {
-                        let currentContent = partial.content
-                        fullContent = currentContent
+                    for try await snapshot in stream {
+                        // Check for cancellation during streaming
+                        try Task.checkCancellation()
 
-                        // Get new content delta (only non-tool-call content)
+                        // Snapshot contains accumulated content - compute delta
+                        let currentContent = snapshot.content
                         if currentContent.count > lastContent.count {
                             let delta = String(currentContent.dropFirst(lastContent.count))
-
-                            // Only yield content that's not inside a tool call block
-                            if !delta.contains(toolCallStart) && !lastContent.contains(toolCallStart) {
-                                continuation.yield(StreamChunk(
-                                    content: delta,
-                                    toolCalls: nil,
-                                    isComplete: false
-                                ))
-                            }
+                            continuation.yield(StreamChunk(
+                                content: delta,
+                                toolCalls: nil,
+                                isComplete: false
+                            ))
                         }
                         lastContent = currentContent
                     }
 
-                    // Parse any tool calls from the complete response
-                    let toolCalls = parseToolCalls(from: fullContent)
-
-                    // If we have tool calls, clean the content
-                    let finalContent = toolCalls.isEmpty ? nil : cleanContent(fullContent)
-                    if let content = finalContent, !content.isEmpty {
-                        // Yield any remaining content before tool calls
-                        continuation.yield(StreamChunk(
-                            content: content,
-                            toolCalls: nil,
-                            isComplete: false
-                        ))
-                    }
-
+                    // Complete - no manual tool handling needed
                     continuation.yield(StreamChunk(
                         content: nil,
-                        toolCalls: toolCalls.isEmpty ? nil : toolCalls,
+                        toolCalls: nil,
                         isComplete: true
                     ))
                     continuation.finish()
+
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch let error as LanguageModelSession.GenerationError {
+                    // Handle specific GenerationError cases as per the guide
+                    let wrappedError = handleGenerationError(error)
+                    continuation.finish(throwing: wrappedError)
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -198,52 +193,133 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
                 continuation.finish(throwing: FoundationModelsError.notAvailable)
                 #endif
             }
+
+            // Handle cancellation from the consumer side
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
         }
     }
 
-    private func buildPrompt(from messages: [Message]) -> String {
-        var prompt = ""
+    #if canImport(FoundationModels)
+    /// Handle GenerationError cases with user-friendly messages
+    private func handleGenerationError(_ error: LanguageModelSession.GenerationError) -> FoundationModelsError {
+        switch error {
+        case .guardrailViolation(_):
+            return .guardrailViolation
+        case .exceededContextWindowSize(let context):
+            return .contextWindowExceeded(context: "\(context)")
+        case .unsupportedLanguageOrLocale(let locale):
+            return .unsupportedLanguage(locale: "\(locale)")
+        case .refusal(let refusal, _):
+            return .refusal(reason: "\(refusal)")
+        case .assetsUnavailable(_):
+            return .modelNotReady
+        case .rateLimited(_):
+            return .rateLimited
+        case .concurrentRequests(_):
+            return .concurrentRequests
+        case .unsupportedGuide(_):
+            return .generationFailed("Unsupported guide configuration")
+        case .decodingFailure(_):
+            return .generationFailed("Failed to decode response")
+        @unknown default:
+            return .generationFailed(error.localizedDescription)
+        }
+    }
+    #endif
 
-        for message in messages {
-            switch message.role {
-            case .system:
-                // System prompt is handled via session instructions
-                continue
-            case .user:
-                prompt += "User: \(message.content)\n\n"
-            case .assistant:
-                prompt += "Assistant: \(message.content)\n\n"
-            case .tool:
-                if let name = message.toolName {
-                    prompt += "Tool Result (\(name)): \(message.content)\n\n"
-                }
-            }
+    private func buildPrompt(from messages: [Message]) -> String {
+        // For Foundation Models with session reuse, just send the latest user message
+        // The session maintains its own conversation transcript internally
+        if let lastUserMessage = messages.last(where: { $0.role == .user }) {
+            return lastUserMessage.content
         }
 
-        return prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Fallback: concatenate non-system messages
+        return messages
+            .filter { $0.role != .system }
+            .map { $0.content }
+            .joined(separator: "\n\n")
     }
 
     /// Reset the session for a new conversation
     func resetSession() {
         #if canImport(FoundationModels)
         session = nil
+        currentInstructions = nil
         #endif
     }
 }
 
+// MARK: - Availability Status
+
+/// Detailed availability status for UI feedback
+enum FoundationModelsAvailability {
+    case available
+    case deviceNotEligible
+    case appleIntelligenceNotEnabled
+    case modelNotReady
+    case unavailable
+
+    var userMessage: String {
+        switch self {
+        case .available:
+            return "Apple Intelligence is ready"
+        case .deviceNotEligible:
+            return "This device doesn't support Apple Intelligence. Requires iPhone 15 Pro or later, or M-series Mac."
+        case .appleIntelligenceNotEnabled:
+            return "Apple Intelligence is not enabled. Please enable it in Settings > Apple Intelligence & Siri."
+        case .modelNotReady:
+            return "Apple Intelligence is still downloading. Please wait and try again."
+        case .unavailable:
+            return "Apple Intelligence is not available."
+        }
+    }
+}
+
+// MARK: - Error Types
+
 enum FoundationModelsError: LocalizedError {
     case notAvailable
-    case toolExecutionFailed(String)
+    case deviceNotEligible
+    case appleIntelligenceNotEnabled
     case modelNotReady
+    case toolExecutionFailed(String)
+    case guardrailViolation
+    case refusal(reason: String)
+    case contextWindowExceeded(context: String)
+    case unsupportedLanguage(locale: String)
+    case rateLimited
+    case concurrentRequests
+    case generationFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .notAvailable:
-            return "Apple Intelligence is not available on this device. Please ensure you have iOS 26+ and Apple Intelligence enabled."
+            return "Apple Intelligence is not available on this device."
+        case .deviceNotEligible:
+            return "This device doesn't support Apple Intelligence. Requires iPhone 15 Pro or later, or M-series Mac."
+        case .appleIntelligenceNotEnabled:
+            return "Apple Intelligence is not enabled. Please enable it in Settings > Apple Intelligence & Siri."
+        case .modelNotReady:
+            return "Apple Intelligence is still downloading. Please wait and try again."
         case .toolExecutionFailed(let message):
             return "Tool execution failed: \(message)"
-        case .modelNotReady:
-            return "Apple Intelligence model is not ready. Please try again."
+        case .guardrailViolation:
+            return "The request was blocked by safety guidelines. Please try rephrasing your question."
+        case .refusal(let reason):
+            return "The model declined to respond: \(reason)"
+        case .contextWindowExceeded(_):
+            return "The conversation is too long. Please start a new conversation."
+        case .unsupportedLanguage(let locale):
+            return "The language '\(locale)' is not supported. Please use English."
+        case .rateLimited:
+            return "Too many requests. Please wait a moment and try again."
+        case .concurrentRequests:
+            return "Another request is in progress. Please wait for it to complete."
+        case .generationFailed(let message):
+            return "Generation failed: \(message)"
         }
     }
 }

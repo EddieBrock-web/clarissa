@@ -1,10 +1,13 @@
 import Foundation
 import CoreLocation
 
-/// Helper class for CLLocationManager delegate
-private final class LocationHelper: NSObject, CLLocationManagerDelegate, @unchecked Sendable {
+/// Helper class for CLLocationManager delegate - must be used from MainActor
+@MainActor
+private final class LocationHelper: NSObject, CLLocationManagerDelegate {
     let locationManager = CLLocationManager()
-    var continuation: CheckedContinuation<CLLocation, Error>?
+    private var locationContinuation: CheckedContinuation<CLLocation, Error>?
+    private var authorizationContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
+    private var isWaitingForAuthorization = false
 
     override init() {
         super.init()
@@ -12,15 +15,88 @@ private final class LocationHelper: NSObject, CLLocationManagerDelegate, @unchec
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        continuation?.resume(returning: location)
-        continuation = nil
+    func setAccuracy(_ accuracy: String) {
+        switch accuracy {
+        case "best":
+            locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        case "high":
+            locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        case "medium":
+            locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        case "low":
+            locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
+        default:
+            locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        continuation?.resume(throwing: error)
-        continuation = nil
+    /// Request location with proper continuation handling
+    func requestLocation() async throws -> CLLocation {
+        return try await withCheckedThrowingContinuation { continuation in
+            self.locationContinuation = continuation
+            self.locationManager.requestLocation()
+        }
+    }
+
+    /// Request authorization and wait for user response
+    func requestAuthorizationAndWait() async -> CLAuthorizationStatus {
+        let currentStatus = locationManager.authorizationStatus
+
+        // If already determined, return immediately
+        guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+
+        // Mark that we're waiting so we know to resume the continuation
+        isWaitingForAuthorization = true
+
+        return await withCheckedContinuation { continuation in
+            self.authorizationContinuation = continuation
+            self.locationManager.requestWhenInUseAuthorization()
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor in
+            self.locationContinuation?.resume(returning: location)
+            self.locationContinuation = nil
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.locationContinuation?.resume(throwing: error)
+            self.locationContinuation = nil
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            // Only resume if we're actively waiting for authorization
+            guard self.isWaitingForAuthorization else { return }
+            self.isWaitingForAuthorization = false
+            self.authorizationContinuation?.resume(returning: status)
+            self.authorizationContinuation = nil
+        }
+    }
+}
+
+/// Actor to hold the MainActor-isolated LocationHelper
+private actor LocationHelperHolder {
+    @MainActor private let helper = LocationHelper()
+
+    func setAccuracy(_ accuracy: String) async {
+        await helper.setAccuracy(accuracy)
+    }
+
+    func requestAuthorizationAndWait() async -> CLAuthorizationStatus {
+        await helper.requestAuthorizationAndWait()
+    }
+
+    func requestLocation() async throws -> CLLocation {
+        try await helper.requestLocation()
     }
 }
 
@@ -31,7 +107,7 @@ final class LocationTool: ClarissaTool, @unchecked Sendable {
     let priority = ToolPriority.extended
     let requiresConfirmation = true
 
-    private let helper = LocationHelper()
+    private let helperHolder = LocationHelperHolder()
 
     var parametersSchema: [String: Any] {
         [
@@ -60,27 +136,17 @@ final class LocationTool: ClarissaTool, @unchecked Sendable {
         let accuracy = args["accuracy"] as? String ?? "medium"
 
         // Set accuracy
-        switch accuracy {
-        case "best":
-            helper.locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        case "high":
-            helper.locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        case "medium":
-            helper.locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        case "low":
-            helper.locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
-        default:
-            helper.locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        }
+        await helperHolder.setAccuracy(accuracy)
 
-        // Check authorization
-        let status = helper.locationManager.authorizationStatus
+        // Request authorization and wait if needed
+        let status = await helperHolder.requestAuthorizationAndWait()
+
+        // Check authorization status
         switch status {
-        case .notDetermined:
-            helper.locationManager.requestWhenInUseAuthorization()
-            try await Task.sleep(nanoseconds: 500_000_000)
         case .denied, .restricted:
             throw ToolError.notAvailable("Location access denied. Please enable in Settings.")
+        case .notDetermined:
+            throw ToolError.notAvailable("Location authorization not granted.")
         case .authorizedWhenInUse, .authorizedAlways:
             break
         @unknown default:
@@ -88,10 +154,7 @@ final class LocationTool: ClarissaTool, @unchecked Sendable {
         }
 
         // Get location
-        let location = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CLLocation, Error>) in
-            helper.continuation = continuation
-            helper.locationManager.requestLocation()
-        }
+        let location = try await helperHolder.requestLocation()
 
         var response: [String: Any] = [
             "latitude": location.coordinate.latitude,

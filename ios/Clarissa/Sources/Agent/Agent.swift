@@ -50,29 +50,25 @@ final class Agent: ObservableObject {
         self.provider = provider
     }
     
-    /// Build the system prompt with tool names and memories
+    /// Build the system prompt with memories
+    /// Note: Tool names are NOT listed here - they are registered natively with the LLM provider
     private func buildSystemPrompt() async -> String {
-        let toolNames = toolRegistry.getToolNames()
-        let toolList = toolNames.map { "- \($0)" }.joined(separator: "\n")
-        
         var prompt = """
-        You are Clarissa, a helpful AI assistant with access to tools.
-        
-        You can use the following tools:
-        \(toolList)
-        
-        When you need to perform actions or interact with the system, use the appropriate tool.
+        You are Clarissa, a helpful AI assistant.
+
+        You have access to tools for weather, calendar, contacts, reminders, location, web fetch, calculations, and memory.
+        Use tools when they would help answer the user's request.
         Always explain what you're doing and provide clear, helpful responses.
         If a tool fails, explain the error and suggest alternatives if possible.
-        
+
         Be concise but thorough. Format your responses for mobile display.
         """
-        
+
         // Add memories if any
         if let memoriesPrompt = await MemoryManager.shared.getForPrompt() {
             prompt += "\n\n\(memoriesPrompt)"
         }
-        
+
         return prompt
     }
     

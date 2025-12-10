@@ -15,6 +15,14 @@ struct ClarissaApp: App {
                     .environmentObject(appState)
             }
         }
+        #if os(macOS)
+        .windowStyle(.automatic)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 800, height: 600)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+        }
+        #endif
     }
 }
 

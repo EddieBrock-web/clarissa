@@ -270,34 +270,58 @@ export class AppleAIProvider implements LLMProvider {
     // Tool results need to be included so the model can generate a response based on them
     const result: Array<{ role: string; content: string }> = [];
 
+    // Build a set of tool call IDs that have results, so we know which tool calls are "completed"
+    const completedToolCallIds = new Set<string>();
     for (const msg of messages) {
+      if (msg.role === "tool" && msg.tool_call_id) {
+        completedToolCallIds.add(msg.tool_call_id);
+      }
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
       if (msg.role === "system") {
         result.push({ role: "system", content: msg.content || "" });
       } else if (msg.role === "user") {
         result.push({ role: "user", content: msg.content || "" });
       } else if (msg.role === "assistant") {
-        // For assistant messages with tool calls, include both the intent and tool info
+        // For assistant messages with tool calls, we need to be careful:
+        // - If all tool calls have been executed (results exist), DON'T include the tool call text
+        //   because Apple AI will see it and try to call the tools again
+        // - Only include tool call info if the tools haven't been executed yet (no results)
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-          const toolInfo = msg.tool_calls
-            .map((tc) => `[Calling tool: ${tc.function.name} with args: ${tc.function.arguments}]`)
-            .join("\n");
-          const content = msg.content ? `${msg.content}\n${toolInfo}` : toolInfo;
-          result.push({ role: "assistant", content });
+          const allCompleted = msg.tool_calls.every(tc => completedToolCallIds.has(tc.id));
+          if (allCompleted) {
+            // Tool calls are complete - just include the content without tool call info
+            // The model will see the tool results in subsequent messages
+            if (msg.content) {
+              result.push({ role: "assistant", content: msg.content });
+            }
+            // If no content, skip this message entirely - the tool results speak for themselves
+          } else {
+            // Tool calls not yet executed - include the intent
+            const toolInfo = msg.tool_calls
+              .map((tc) => `[Calling tool: ${tc.function.name} with args: ${tc.function.arguments}]`)
+              .join("\n");
+            const content = msg.content ? `${msg.content}\n${toolInfo}` : toolInfo;
+            result.push({ role: "assistant", content });
+          }
         } else if (msg.content) {
           result.push({ role: "assistant", content: msg.content });
         }
       } else if (msg.role === "tool") {
-        // Convert tool results to user messages so the model sees them
-        // Truncate long tool results to prevent context overflow
+        // Convert tool results to assistant messages so it looks like the assistant's work
+        // This prevents the model from thinking it needs to re-execute tools
         const toolName = msg.name || "tool";
         let toolContent = msg.content || "";
         if (toolContent.length > AppleAIProvider.MAX_TOOL_RESULT_CHARS) {
           toolContent = toolContent.slice(0, AppleAIProvider.MAX_TOOL_RESULT_CHARS) +
             `\n... [truncated, ${toolContent.length - AppleAIProvider.MAX_TOOL_RESULT_CHARS} chars omitted]`;
         }
+        // Present tool results as assistant messages to indicate the work is done
         result.push({
-          role: "user",
-          content: `[Tool result from ${toolName}]: ${toolContent}`,
+          role: "assistant",
+          content: `[${toolName} completed]: ${toolContent}`,
         });
       }
     }

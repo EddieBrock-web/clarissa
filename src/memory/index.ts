@@ -4,6 +4,12 @@ import { mkdir } from "fs/promises";
 
 const MEMORY_FILE = join(homedir(), ".clarissa", "memories.json");
 
+/** Maximum number of memories to store (matches iOS) */
+const MAX_MEMORIES = 100;
+
+/** Maximum number of recent memories to include in prompt (matches iOS) */
+const MAX_MEMORIES_FOR_PROMPT = 20;
+
 export interface Memory {
   id: string;
   content: string;
@@ -30,6 +36,23 @@ class MemoryManager {
    */
   private generateId(): string {
     return `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  }
+
+  /**
+   * Normalize content for duplicate comparison
+   */
+  private normalizeContent(content: string): string {
+    return content.toLowerCase().trim();
+  }
+
+  /**
+   * Check if a memory with similar content already exists
+   */
+  private isDuplicate(content: string): boolean {
+    const normalized = this.normalizeContent(content);
+    return this.memories.some(
+      (m) => this.normalizeContent(m.content) === normalized
+    );
   }
 
   /**
@@ -63,9 +86,15 @@ class MemoryManager {
 
   /**
    * Add a new memory
+   * Returns null if memory is a duplicate
    */
-  async add(content: string): Promise<Memory> {
+  async add(content: string): Promise<Memory | null> {
     await this.load();
+
+    // Check for duplicates (iOS pattern)
+    if (this.isDuplicate(content)) {
+      return null;
+    }
 
     const memory: Memory = {
       id: this.generateId(),
@@ -74,6 +103,13 @@ class MemoryManager {
     };
 
     this.memories.push(memory);
+
+    // Trim old memories if exceeding max (iOS pattern)
+    if (this.memories.length > MAX_MEMORIES) {
+      const toRemove = this.memories.length - MAX_MEMORIES;
+      this.memories.splice(0, toRemove);
+    }
+
     this.version++;
     await this.save();
 
@@ -133,6 +169,7 @@ class MemoryManager {
 
   /**
    * Get memories formatted for system prompt
+   * Only includes most recent memories to avoid context overflow (iOS pattern)
    */
   async getForPrompt(): Promise<string | null> {
     await this.load();
@@ -141,7 +178,9 @@ class MemoryManager {
       return null;
     }
 
-    const lines = this.memories.map((m) => `- ${m.content}`);
+    // Take only most recent memories for prompt (iOS pattern)
+    const recentMemories = this.memories.slice(-MAX_MEMORIES_FOR_PROMPT);
+    const lines = recentMemories.map((m) => `- ${m.content}`);
     return `## Remembered Context\nThe user has asked you to remember the following:\n${lines.join("\n")}`;
   }
 }

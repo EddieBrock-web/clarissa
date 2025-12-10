@@ -21,7 +21,7 @@ Native iOS version of Clarissa, built with Swift and SwiftUI.
 
 ## Project Structure
 
-```
+```text
 ios/Clarissa/
 ├── Sources/
 │   ├── App/           # App entry point and state
@@ -110,5 +110,4 @@ Tools are registered with the `ToolRegistry` and implement the `ClarissaTool` pr
 
 ---
 
-Made with love by Cameron Rye - [rye.dev](https://rye.dev)
-
+Made with ❤️ by [Cameron Rye](https://rye.dev)
