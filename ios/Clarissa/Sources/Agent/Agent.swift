@@ -37,6 +37,42 @@ enum TokenBudget {
     }
 }
 
+/// Statistics about current context window usage
+struct ContextStats: Sendable {
+    let currentTokens: Int
+    let maxTokens: Int
+    let usagePercent: Double
+    let systemTokens: Int
+    let userTokens: Int
+    let assistantTokens: Int
+    let toolTokens: Int
+    let messageCount: Int
+    let trimmedCount: Int
+
+    /// Returns true if context is nearly full (>80%)
+    var isNearLimit: Bool {
+        usagePercent >= 0.8
+    }
+
+    /// Returns true if context is critically full (>95%)
+    var isCritical: Bool {
+        usagePercent >= 0.95
+    }
+
+    /// Empty stats for initial state
+    static let empty = ContextStats(
+        currentTokens: 0,
+        maxTokens: TokenBudget.maxHistoryTokens,
+        usagePercent: 0,
+        systemTokens: 0,
+        userTokens: 0,
+        assistantTokens: 0,
+        toolTokens: 0,
+        messageCount: 0,
+        trimmedCount: 0
+    )
+}
+
 /// Errors that can occur during agent execution
 enum AgentError: LocalizedError {
     case maxIterationsReached
@@ -263,6 +299,43 @@ final class Agent: ObservableObject {
     /// Get messages for saving (excluding system)
     func getMessagesForSave() -> [Message] {
         messages.filter { $0.role != .system }
+    }
+
+    /// Get current context statistics
+    func getContextStats() -> ContextStats {
+        var systemTokens = 0
+        var userTokens = 0
+        var assistantTokens = 0
+        var toolTokens = 0
+
+        for message in messages {
+            let tokens = TokenBudget.estimate(message.content)
+            switch message.role {
+            case .system:
+                systemTokens += tokens
+            case .user:
+                userTokens += tokens
+            case .assistant:
+                assistantTokens += tokens
+            case .tool:
+                toolTokens += tokens
+            }
+        }
+
+        let historyTokens = userTokens + assistantTokens + toolTokens
+        let usagePercent = Double(historyTokens) / Double(TokenBudget.maxHistoryTokens)
+
+        return ContextStats(
+            currentTokens: historyTokens,
+            maxTokens: TokenBudget.maxHistoryTokens,
+            usagePercent: min(1.0, usagePercent),
+            systemTokens: systemTokens,
+            userTokens: userTokens,
+            assistantTokens: assistantTokens,
+            toolTokens: toolTokens,
+            messageCount: messages.count,
+            trimmedCount: 0 // TODO: Track trimmed messages if needed
+        )
     }
 }
 

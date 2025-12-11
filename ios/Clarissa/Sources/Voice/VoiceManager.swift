@@ -1,7 +1,7 @@
 import Foundation
 import AVFoundation
 import Speech
-import SwiftUI
+import Combine
 
 /// Coordinates voice input and output for conversational voice mode
 @MainActor
@@ -25,6 +25,8 @@ final class VoiceManager: ObservableObject {
     /// Callback when user interrupts speech
     var onInterruption: (() -> Void)?
 
+    private var cancellables = Set<AnyCancellable>()
+
     init() {
         speechRecognizer = SpeechRecognizer()
         speechSynthesizer = SpeechSynthesizer()
@@ -32,32 +34,37 @@ final class VoiceManager: ObservableObject {
     }
 
     private func setupObservers() {
-        // Observe speech recognizer state
-        Task { @MainActor in
-            for await isRecording in speechRecognizer.$isRecording.values {
-                self.isListening = isRecording
+        // Observe speech recognizer state using Combine
+        speechRecognizer.$isRecording
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isRecording in
+                self?.isListening = isRecording
             }
-        }
+            .store(in: &cancellables)
 
-        Task { @MainActor in
-            for await transcript in speechRecognizer.$transcript.values {
-                self.currentTranscript = transcript
+        speechRecognizer.$transcript
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcript in
+                self?.currentTranscript = transcript
             }
-        }
+            .store(in: &cancellables)
 
-        Task { @MainActor in
-            for await isSpeaking in speechSynthesizer.$isSpeaking.values {
-                self.isSpeaking = isSpeaking
+        speechSynthesizer.$isSpeaking
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] speaking in
+                guard let self else { return }
+                self.isSpeaking = speaking
 
                 // Auto-listen after speaking in voice mode
-                if !isSpeaking && self.isVoiceModeActive && self.autoListenAfterSpeaking {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    if self.isVoiceModeActive && !self.isListening {
+                if !speaking && self.isVoiceModeActive && self.autoListenAfterSpeaking {
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(500))
+                        guard let self, self.isVoiceModeActive, !self.isListening else { return }
                         await self.startListening()
                     }
                 }
             }
-        }
+            .store(in: &cancellables)
     }
 
     /// Request necessary permissions for voice features
@@ -65,12 +72,8 @@ final class VoiceManager: ObservableObject {
         // Request speech recognition permission
         let speechAuthorized = await speechRecognizer.requestAuthorization()
 
-        // Request microphone permission
-        let micAuthorized = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
+        // Request microphone permission (use non-isolated helper to avoid dispatch queue assertion)
+        let micAuthorized = await requestMicrophonePermission()
 
         isAuthorized = speechAuthorized && micAuthorized
         return isAuthorized
@@ -166,3 +169,12 @@ final class VoiceManager: ObservableObject {
     }
 }
 
+/// Non-isolated helper to request microphone permission without actor isolation context
+/// This avoids dispatch queue assertion failures when the callback runs on a background queue
+private func requestMicrophonePermission() async -> Bool {
+    await withCheckedContinuation { continuation in
+        AVAudioApplication.requestRecordPermission { granted in
+            continuation.resume(returning: granted)
+        }
+    }
+}

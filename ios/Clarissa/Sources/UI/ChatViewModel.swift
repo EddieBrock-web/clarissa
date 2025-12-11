@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 /// View model for the chat interface
 @MainActor
@@ -21,11 +22,15 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     @Published var isSpeaking: Bool = false
     @Published var voiceTranscript: String = ""
 
+    // MARK: - Context Properties
+    @Published var contextStats: ContextStats = .empty
+
     private var agent: Agent
     private var toolConfirmationContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var appState: AppState?
     private var currentTask: Task<Void, Never>?
     private(set) var voiceManager: VoiceManager?
+    private var voiceCancellables = Set<AnyCancellable>()
 
     init() {
         // Read autoApproveTools setting
@@ -54,7 +59,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         // Handle transcript ready
         manager.onTranscriptReady = { [weak self] transcript in
             Task { @MainActor [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 self.inputText = transcript
                 self.voiceTranscript = ""
 
@@ -65,34 +70,39 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
             }
         }
 
-        // Observe voice manager state
-        Task { @MainActor in
-            for await isListening in manager.speechRecognizer.$isRecording.values {
-                self.isRecording = isListening
+        // Observe voice manager state using Combine
+        manager.speechRecognizer.$isRecording
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isListening in
+                self?.isRecording = isListening
             }
-        }
+            .store(in: &voiceCancellables)
 
-        Task { @MainActor in
-            for await transcript in manager.speechRecognizer.$transcript.values {
+        manager.speechRecognizer.$transcript
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcript in
+                guard let self else { return }
                 self.voiceTranscript = transcript
                 // Update input text while recording
                 if self.isRecording {
                     self.inputText = transcript
                 }
             }
-        }
+            .store(in: &voiceCancellables)
 
-        Task { @MainActor in
-            for await isSpeaking in manager.speechSynthesizer.$isSpeaking.values {
-                self.isSpeaking = isSpeaking
+        manager.speechSynthesizer.$isSpeaking
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] speaking in
+                self?.isSpeaking = speaking
             }
-        }
+            .store(in: &voiceCancellables)
 
-        Task { @MainActor in
-            for await isActive in manager.$isVoiceModeActive.values {
-                self.isVoiceModeActive = isActive
+        manager.$isVoiceModeActive
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.isVoiceModeActive = isActive
             }
-        }
+            .store(in: &voiceCancellables)
     }
 
     /// Configure with AppState for provider switching
@@ -249,6 +259,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         agent.reset()
         streamingContent = ""
         errorMessage = nil
+        updateContextStats()
 
         // Create new session in background (actor ensures thread safety)
         Task {
@@ -270,6 +281,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
 
         // Load into agent
         agent.loadMessages(savedMessages)
+        updateContextStats()
     }
 
     /// Save the current session
@@ -301,6 +313,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
                 }
             }
             agent.loadMessages(session.messages)
+            updateContextStats()
         }
     }
 
@@ -394,6 +407,9 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         let assistantMessage = ChatMessage(role: .assistant, content: content)
         messages.append(assistantMessage)
 
+        // Update context stats
+        updateContextStats()
+
         // Speak response in voice mode
         if isVoiceModeActive, let voiceManager = voiceManager {
             // Read voice output setting
@@ -406,6 +422,13 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
 
     func onError(error: Error) {
         errorMessage = error.localizedDescription
+    }
+
+    // MARK: - Context Stats
+
+    /// Update context statistics from the agent
+    private func updateContextStats() {
+        contextStats = agent.getContextStats()
     }
 
     // MARK: - Voice Control Methods

@@ -8,7 +8,7 @@ final class SpeechSynthesizer: NSObject, ObservableObject {
     @Published var availableVoices: [AVSpeechSynthesisVoice] = []
     @Published var selectedVoiceIdentifier: String?
 
-    private var synthesizer: AVSpeechSynthesizer
+    private let synthesizer: AVSpeechSynthesizer
     private var currentUtterance: AVSpeechUtterance?
 
     /// Speech rate (0.0 to 1.0, default is 0.5)

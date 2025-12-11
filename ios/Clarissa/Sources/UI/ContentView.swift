@@ -5,7 +5,7 @@ public struct ContentView: View {
     @StateObject private var chatViewModel = ChatViewModel()
     @State private var showSettings = false
     @State private var showSessionHistory = false
-    @State private var sessionCount: Int = 0
+    @State private var showContextDetails = false
 
     public init() {}
 
@@ -62,12 +62,14 @@ public struct ContentView: View {
                         chatViewModel.refreshProvider()
                     })
                 }
-                .sheet(isPresented: $showSessionHistory, onDismiss: {
-                    Task { await refreshSessionCount() }
-                }) {
+                .sheet(isPresented: $showSessionHistory) {
                     SessionHistoryView(viewModel: chatViewModel) {
                         showSessionHistory = false
                     }
+                }
+                .sheet(isPresented: $showContextDetails) {
+                    ContextDetailSheet(stats: chatViewModel.contextStats)
+                        .presentationDetents([.medium, .large])
                 }
         }
         .tint(ClarissaTheme.purple)
@@ -85,7 +87,6 @@ public struct ContentView: View {
             }
             Button("Start New", role: .destructive) {
                 chatViewModel.startNewSession()
-                Task { await refreshSessionCount() }
             }
         } message: {
             Text("Your current conversation will be saved to history.")
@@ -93,16 +94,25 @@ public struct ContentView: View {
     }
 
     private var titleView: some View {
-        Text("Clarissa")
-            .font(.headline.bold())
-            .gradientForeground()
+        HStack(spacing: 8) {
+            Text("Clarissa")
+                .font(.headline.bold())
+                .gradientForeground()
+
+            // Show context indicator when there are messages
+            if chatViewModel.contextStats.messageCount > 0 {
+                ContextIndicatorView(stats: chatViewModel.contextStats) {
+                    showContextDetails = true
+                }
+            }
+        }
     }
 
     private var newSessionButton: some View {
         Button {
             chatViewModel.requestNewSession()
         } label: {
-            Image(systemName: "square.and.pencil")
+            Image(systemName: "plus.circle")
                 .foregroundStyle(ClarissaTheme.gradient)
         }
         .accessibilityLabel("New conversation")
@@ -116,33 +126,11 @@ public struct ContentView: View {
         Button {
             showSessionHistory = true
         } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .foregroundStyle(ClarissaTheme.gradient)
-
-                // Session count badge (show if more than 1 session)
-                if sessionCount > 1 {
-                    Text("\(min(sessionCount, 99))")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(3)
-                        .background(ClarissaTheme.pink)
-                        .clipShape(Circle())
-                        .offset(x: 8, y: -8)
-                        .accessibilityHidden(true)
-                }
-            }
+            Image(systemName: "clock.arrow.circlepath")
+                .foregroundStyle(ClarissaTheme.gradient)
         }
         .accessibilityLabel("Conversation history")
-        .accessibilityHint(sessionCount > 1 ? "\(sessionCount) conversations" : "View past conversations")
-        .task {
-            await refreshSessionCount()
-        }
-    }
-
-    private func refreshSessionCount() async {
-        let sessions = await chatViewModel.getAllSessions()
-        sessionCount = sessions.count
+        .accessibilityHint("View past conversations")
     }
 
     private var voiceModeButton: some View {
