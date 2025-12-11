@@ -96,7 +96,6 @@ struct ToolTests {
     func testRememberToolProperties() {
         let rememberTool = RememberTool()
         #expect(rememberTool.name == "remember")
-        #expect(rememberTool.requiresConfirmation == false)
         #expect(rememberTool.priority == .core)
     }
 

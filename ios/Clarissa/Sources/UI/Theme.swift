@@ -66,6 +66,9 @@ enum ClarissaTheme {
 
     /// Primary action tint
     static let primaryActionTint = purple
+
+    /// Enhance prompt button tint
+    static let enhanceTint = cyan
 }
 
 /// Extension for gradient text effect

@@ -15,19 +15,16 @@ enum ToolPriority: Int, Comparable {
 protocol ClarissaTool: Sendable {
     /// Tool name (used in LLM calls)
     var name: String { get }
-    
+
     /// Tool description for the LLM
     var description: String { get }
-    
+
     /// Tool priority for selection
     var priority: ToolPriority { get }
-    
-    /// Whether this tool requires user confirmation before execution
-    var requiresConfirmation: Bool { get }
-    
+
     /// JSON Schema for parameters
     var parametersSchema: [String: Any] { get }
-    
+
     /// Execute the tool with the given JSON arguments
     func execute(arguments: String) async throws -> String
 }
@@ -35,7 +32,6 @@ protocol ClarissaTool: Sendable {
 /// Default implementations
 extension ClarissaTool {
     var priority: ToolPriority { .extended }
-    var requiresConfirmation: Bool { false }
 }
 
 /// Convert a tool to a definition for the LLM

@@ -3,7 +3,6 @@ import Foundation
 /// Configuration for the agent
 struct AgentConfig {
     var maxIterations: Int = ClarissaConstants.defaultMaxIterations
-    var autoApprove: Bool = ClarissaConstants.defaultAutoApprove
 }
 
 // MARK: - Token Management
@@ -251,27 +250,7 @@ final class Agent: ObservableObject {
             if !toolCalls.isEmpty {
                 for toolCall in toolCalls {
                     callbacks?.onToolCall(name: toolCall.name, arguments: toolCall.arguments)
-                    
-                    // Check confirmation if needed
-                    let needsConfirmation = toolRegistry.requiresConfirmation(toolCall.name)
-                    if !config.autoApprove && needsConfirmation {
-                        let approved = await callbacks?.onToolConfirmation(
-                            name: toolCall.name,
-                            arguments: toolCall.arguments
-                        ) ?? true
-                        
-                        if !approved {
-                            let result = Message.tool(
-                                callId: toolCall.id,
-                                name: toolCall.name,
-                                content: "{\"rejected\": true, \"message\": \"User rejected this tool execution\"}"
-                            )
-                            messages.append(result)
-                            callbacks?.onToolResult(name: toolCall.name, result: "Rejected by user")
-                            continue
-                        }
-                    }
-                    
+
                     // Execute tool
                     do {
                         ClarissaLogger.tools.info("Executing tool: \(toolCall.name, privacy: .public)")

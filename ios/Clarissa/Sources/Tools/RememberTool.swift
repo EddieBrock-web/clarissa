@@ -12,7 +12,6 @@ final class RememberTool: ClarissaTool, @unchecked Sendable {
     let name = "remember"
     let description = "Store important information in long-term memory. Use this to remember user preferences, important facts, or context that should persist across conversations."
     let priority = ToolPriority.core
-    let requiresConfirmation = false
 
     var parametersSchema: [String: Any] {
         [

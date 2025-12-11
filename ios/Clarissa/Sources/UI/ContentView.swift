@@ -26,7 +26,10 @@ public struct ContentView: View {
                 .toolbar {
                     #if os(iOS)
                     ToolbarItem(placement: .topBarLeading) {
-                        leadingToolbarContent
+                        HStack(spacing: 12) {
+                            contextIndicator
+                            leadingToolbarContent
+                        }
                     }
 
                     ToolbarItem(placement: .principal) {
@@ -39,7 +42,10 @@ public struct ContentView: View {
                     #else
                     // macOS: Use navigation placement for leading items
                     ToolbarItem(placement: .navigation) {
-                        leadingToolbarContent
+                        HStack(spacing: 12) {
+                            contextIndicator
+                            leadingToolbarContent
+                        }
                     }
 
                     // macOS: Principal placement for title
@@ -97,16 +103,16 @@ public struct ContentView: View {
     }
 
     private var titleView: some View {
-        HStack(spacing: 8) {
-            Text("Clarissa")
-                .font(.headline.bold())
-                .gradientForeground()
+        Text("Clarissa")
+            .font(.headline.bold())
+            .gradientForeground()
+    }
 
-            // Show context indicator when there are messages
-            if chatViewModel.contextStats.messageCount > 0 {
-                ContextIndicatorView(stats: chatViewModel.contextStats) {
-                    showContextDetails = true
-                }
+    @ViewBuilder
+    private var contextIndicator: some View {
+        if chatViewModel.contextStats.messageCount > 0 {
+            ContextIndicatorView(stats: chatViewModel.contextStats) {
+                showContextDetails = true
             }
         }
     }

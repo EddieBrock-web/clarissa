@@ -121,11 +121,6 @@ public struct OnboardingView: View {
                     continueButton
                         .glassEffectID("primaryButton", in: onboardingNamespace)
                 }
-
-                if currentPage < pages.count - 1 {
-                    skipButton
-                        .glassEffectID("secondaryButton", in: onboardingNamespace)
-                }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
@@ -140,10 +135,6 @@ public struct OnboardingView: View {
                 getStartedButton
             } else {
                 continueButton
-            }
-
-            if currentPage < pages.count - 1 {
-                skipButton
             }
         }
         .padding(.horizontal, 24)
@@ -225,28 +216,6 @@ public struct OnboardingView: View {
             }
             .accessibilityLabel("Continue")
             .accessibilityHint("Double-tap to go to the next page")
-        }
-    }
-
-    @ViewBuilder
-    private var skipButton: some View {
-        if #available(iOS 26.0, macOS 26.0, *) {
-            Button("Skip") {
-                HapticManager.shared.lightTap()
-                appState.completeOnboarding()
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.roundedRectangle(radius: 14))
-            .accessibilityLabel("Skip onboarding")
-            .accessibilityHint("Double-tap to skip the remaining pages and start using Clarissa")
-        } else {
-            Button("Skip") {
-                HapticManager.shared.lightTap()
-                appState.completeOnboarding()
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Skip onboarding")
-            .accessibilityHint("Double-tap to skip the remaining pages and start using Clarissa")
         }
     }
 }

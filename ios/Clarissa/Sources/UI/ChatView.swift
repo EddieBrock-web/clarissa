@@ -44,12 +44,16 @@ struct ChatView: View {
                         ForEach(viewModel.messages) { message in
                             MessageBubble(
                                 message: message,
-                                onRetry: message.role == .assistant ? { viewModel.retryLastMessage() } : nil
+                                onRetry: message.role == .assistant ? { viewModel.retryLastMessage() } : nil,
+                                onSpeak: message.role == .assistant ? { text in viewModel.speak(text: text) } : nil,
+                                onStopSpeaking: { viewModel.stopSpeaking() },
+                                isSpeaking: viewModel.isSpeaking
                             )
                             .id(message.id)
                             .transition(.asymmetric(
-                                insertion: .move(edge: message.role == .user ? .trailing : .leading)
-                                    .combined(with: .opacity),
+                                insertion: message.role == .user
+                                    ? .move(edge: .trailing).combined(with: .opacity)
+                                    : .opacity,  // Assistant/tool messages just fade in (no slide)
                                 removal: .opacity
                             ))
                         }
@@ -60,11 +64,15 @@ struct ChatView: View {
                             StreamingMessageBubble(content: viewModel.streamingContent)
                                 .id("streaming")
                         }
-                        
-                        // Loading indicator with cancel button - uses glass on iOS 26+
-                        if viewModel.isLoading && viewModel.streamingContent.isEmpty {
-                            thinkingIndicator
-                                .id("loading")
+
+                        // Typing bubble indicator - shows what Clarissa is doing
+                        if viewModel.thinkingStatus.isActive {
+                            TypingBubble(
+                                status: viewModel.thinkingStatus,
+                                showCancel: viewModel.canCancel,
+                                onCancel: { viewModel.cancelGeneration() }
+                            )
+                            .id("thinking")
                         }
                     }
                     .padding()
@@ -79,6 +87,13 @@ struct ChatView: View {
                 .onChange(of: viewModel.streamingContent) { _, _ in
                     withAnimation {
                         proxy.scrollTo("streaming", anchor: .bottom)
+                    }
+                }
+                .onChange(of: viewModel.thinkingStatus) { _, newStatus in
+                    if newStatus.isActive {
+                        withAnimation {
+                            proxy.scrollTo("thinking", anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -109,48 +124,10 @@ struct ChatView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .sheet(item: $viewModel.pendingToolConfirmation) { confirmation in
-            ToolConfirmationSheet(
-                confirmation: confirmation,
-                onConfirm: { viewModel.confirmTool(true) },
-                onCancel: { viewModel.confirmTool(false) }
-            )
-            .presentationDetents([.medium])
-        }
         #if os(macOS)
         // Keyboard shortcuts for Mac
         .keyboardShortcut(.return, modifiers: .command) // Cmd+Return to send
         #endif
-    }
-
-    // MARK: - Glass Thinking Indicator
-
-    @ViewBuilder
-    private var thinkingIndicator: some View {
-        HStack {
-            if #available(iOS 26.0, macOS 26.0, *) {
-                GlassThinkingIndicator(
-                    message: "Thinking...",
-                    tint: ClarissaTheme.purple,
-                    showCancel: viewModel.canCancel,
-                    onCancel: {
-                        viewModel.cancelGeneration()
-                    }
-                )
-            } else {
-                LegacyThinkingIndicator(
-                    message: "Thinking...",
-                    tint: ClarissaTheme.purple,
-                    showCancel: viewModel.canCancel,
-                    onCancel: {
-                        viewModel.cancelGeneration()
-                    }
-                )
-            }
-            Spacer()
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
     }
 
     // MARK: - Input Area with Glass Effects
@@ -168,8 +145,11 @@ struct ChatView: View {
     private var glassInputArea: some View {
         GlassEffectContainer(spacing: 20) {
             HStack(spacing: 12) {
-                // Voice input button with glass
-                voiceInputButton
+                // Voice input button with glass (speech recognition / listening)
+                // Hidden when voice mode is active since VoiceModeIndicator handles voice
+                if !viewModel.isVoiceModeActive {
+                    voiceInputButton
+                }
 
                 // Text input field
                 TextField("Message Clarissa...", text: $viewModel.inputText, axis: .vertical)
@@ -185,9 +165,9 @@ struct ChatView: View {
                     .accessibilityLabel("Message input")
                     .accessibilityHint("Type your message to Clarissa. Press return to send.")
 
-                // Stop speaking button (when assistant is speaking)
-                if viewModel.isSpeaking {
-                    stopSpeakingButton
+                // Enhance prompt button - only shown when there's text
+                if hasInputText {
+                    enhanceButton
                 }
 
                 // Send button
@@ -197,31 +177,38 @@ struct ChatView: View {
         }
     }
 
+    /// Helper to check if input has text
+    private var hasInputText: Bool {
+        !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var legacyInputArea: some View {
         HStack(spacing: 12) {
-            // Voice input button
-            Button {
-                HapticManager.shared.mediumTap()
-                Task { await viewModel.toggleVoiceInput() }
-            } label: {
-                ZStack {
-                    if viewModel.isRecording {
-                        Circle()
-                            .fill(Color.red.opacity(0.2))
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "waveform")
-                            .font(.title3)
-                            .foregroundStyle(.red)
-                            .symbolEffect(.variableColor.iterative, options: .repeating)
-                    } else {
-                        Image(systemName: "mic.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(ClarissaTheme.gradient)
+            // Voice input button - hidden when voice mode is active
+            if !viewModel.isVoiceModeActive {
+                Button {
+                    HapticManager.shared.mediumTap()
+                    Task { await viewModel.toggleVoiceInput() }
+                } label: {
+                    ZStack {
+                        if viewModel.isRecording {
+                            Circle()
+                                .fill(Color.red.opacity(0.2))
+                                .frame(width: 36, height: 36)
+                            Image(systemName: "waveform")
+                                .font(.title3)
+                                .foregroundStyle(.red)
+                                .symbolEffect(.variableColor.iterative, options: .repeating)
+                        } else {
+                            Image(systemName: "mic.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(ClarissaTheme.gradient)
+                        }
                     }
                 }
+                .accessibilityLabel(viewModel.isRecording ? "Stop recording" : "Start voice input")
+                .accessibilityHint(viewModel.isRecording ? "Double-tap to stop recording and send transcribed text" : "Double-tap to speak your message instead of typing")
             }
-            .accessibilityLabel(viewModel.isRecording ? "Stop recording" : "Start voice input")
-            .accessibilityHint(viewModel.isRecording ? "Double-tap to stop recording and send transcribed text" : "Double-tap to speak your message instead of typing")
 
             TextField("Message Clarissa...", text: $viewModel.inputText, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -234,32 +221,47 @@ struct ChatView: View {
                 .accessibilityLabel("Message input")
                 .accessibilityHint("Type your message to Clarissa. Press return to send.")
 
-            let isDisabled = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading
+            let sendDisabled = !hasInputText || viewModel.isLoading
+            let enhanceDisabled = !hasInputText || viewModel.isLoading || viewModel.isEnhancing
 
-            if viewModel.isSpeaking {
+            // Enhance prompt button - only shown when there's text
+            if hasInputText {
                 Button {
-                    HapticManager.shared.lightTap()
-                    viewModel.stopSpeaking()
+                    Task { await viewModel.enhanceCurrentPrompt() }
                 } label: {
-                    Image(systemName: "speaker.slash.circle.fill")
+                    Image(systemName: "wand.and.stars")
                         .font(.title2)
-                        .foregroundStyle(ClarissaTheme.pink)
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Circle()
+                                .fill(enhanceDisabled ? Color.secondary.opacity(0.3) : ClarissaTheme.cyan)
+                        )
+                        .symbolEffect(.pulse, isActive: viewModel.isEnhancing)
                 }
-                .accessibilityLabel("Stop speaking")
-                .accessibilityHint("Double-tap to stop Clarissa from speaking the current response")
+                .disabled(enhanceDisabled)
+                .accessibilityLabel("Enhance prompt")
+                .accessibilityHint(enhanceDisabled ? "Type a message first to enable prompt enhancement" : "Double-tap to improve your prompt")
             }
 
+            // Send button
             Button {
                 HapticManager.shared.mediumTap()
                 viewModel.sendMessage()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
+                Image(systemName: "arrow.up")
                     .font(.title2)
-                    .foregroundStyle(isDisabled ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(ClarissaTheme.gradient))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(sendDisabled ? Color.secondary.opacity(0.3) : ClarissaTheme.purple)
+                    )
             }
-            .disabled(isDisabled)
+            .disabled(sendDisabled)
             .accessibilityLabel("Send message")
-            .accessibilityHint(isDisabled ? "Type a message first, then double-tap to send" : "Double-tap to send your message to Clarissa")
+            .accessibilityHint(sendDisabled ? "Type a message first, then double-tap to send" : "Double-tap to send your message to Clarissa")
         }
         .padding()
         .background(.bar)
@@ -291,29 +293,32 @@ struct ChatView: View {
     }
 
     @available(iOS 26.0, macOS 26.0, *)
-    private var stopSpeakingButton: some View {
-        Button {
-            HapticManager.shared.lightTap()
-            viewModel.stopSpeaking()
+    private var enhanceButton: some View {
+        let isDisabled = viewModel.isLoading || viewModel.isEnhancing
+
+        return Button {
+            Task { await viewModel.enhanceCurrentPrompt() }
         } label: {
-            Image(systemName: "speaker.slash")
+            Image(systemName: "wand.and.stars")
                 .font(.title2)
                 .frame(width: 44, height: 44)
+                .symbolEffect(.pulse, isActive: viewModel.isEnhancing)
         }
         .glassEffect(
-            reduceMotion
-                ? Glass.regular.tint(ClarissaTheme.pink)
-                : Glass.regular.interactive().tint(ClarissaTheme.pink),
+            isDisabled
+                ? Glass.regular
+                : (reduceMotion ? Glass.regular.tint(ClarissaTheme.enhanceTint) : Glass.regular.interactive().tint(ClarissaTheme.enhanceTint)),
             in: .circle
         )
-        .glassEffectID("stopSpeaking", in: inputNamespace)
-        .accessibilityLabel("Stop speaking")
-        .accessibilityHint("Double-tap to stop Clarissa from speaking the current response")
+        .glassEffectID("enhance", in: inputNamespace)
+        .disabled(isDisabled)
+        .accessibilityLabel("Enhance prompt")
+        .accessibilityHint(isDisabled ? "Processing..." : "Double-tap to improve your prompt")
     }
 
     @available(iOS 26.0, macOS 26.0, *)
     private var sendButton: some View {
-        let isDisabled = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading
+        let isDisabled = !hasInputText || viewModel.isLoading
 
         return Button {
             HapticManager.shared.mediumTap()
@@ -339,6 +344,9 @@ struct ChatView: View {
 struct MessageBubble: View {
     let message: ChatMessage
     var onRetry: (() -> Void)? = nil
+    var onSpeak: ((String) -> Void)? = nil
+    var onStopSpeaking: (() -> Void)? = nil
+    var isSpeaking: Bool = false
 
     @State private var showCopied = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -380,6 +388,7 @@ struct MessageBubble: View {
                         .frame(maxWidth: maxBubbleWidth, alignment: .leading)
                         .contextMenu {
                             copyButton
+                            speakButton
                             if let onRetry = onRetry {
                                 Button {
                                     onRetry()
@@ -402,6 +411,24 @@ struct MessageBubble: View {
 
             if message.role != .user {
                 Spacer(minLength: 60)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var speakButton: some View {
+        if isSpeaking {
+            Button {
+                onStopSpeaking?()
+            } label: {
+                Label("Stop Speaking", systemImage: "speaker.slash")
+            }
+        } else if let onSpeak = onSpeak {
+            Button {
+                HapticManager.shared.lightTap()
+                onSpeak(message.content)
+            } label: {
+                Label("Speak", systemImage: "speaker.wave.2")
             }
         }
     }
@@ -505,6 +532,112 @@ struct StreamingMessageBubble: View {
     }
 }
 
+/// Typing bubble indicator that looks like an incoming message with animated dots
+/// Shows what Clarissa is currently doing (thinking, using a tool, processing)
+struct TypingBubble: View {
+    let status: ThinkingStatus
+    var showCancel: Bool = false
+    var onCancel: (() -> Void)?
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var maxBubbleWidth: CGFloat? {
+        horizontalSizeClass == .regular ? 600 : nil
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            // Bubble content
+            HStack(spacing: 10) {
+                // Animated dots
+                TypingDotsView(reduceMotion: reduceMotion)
+
+                // Status text
+                Text(status.displayText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                // Cancel button
+                if showCancel, let onCancel = onCancel {
+                    Button {
+                        HapticManager.shared.lightTap()
+                        onCancel()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Cancel")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(ClarissaTheme.assistantBubble)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .frame(maxWidth: maxBubbleWidth, alignment: .leading)
+
+            Spacer(minLength: 60)
+        }
+        .transition(.asymmetric(
+            insertion: .move(edge: .leading).combined(with: .opacity),
+            removal: .opacity
+        ))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Clarissa is \(status.displayText.lowercased())")
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// Animated typing dots (like iMessage)
+private struct TypingDotsView: View {
+    let reduceMotion: Bool
+
+    @State private var phase: Int = 0
+
+    private let dotSize: CGFloat = 8
+    private let dotSpacing: CGFloat = 4
+
+    var body: some View {
+        HStack(spacing: dotSpacing) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(ClarissaTheme.purple)
+                    .frame(width: dotSize, height: dotSize)
+                    .scaleEffect(scaleFor(index))
+                    .opacity(opacityFor(index))
+            }
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            startAnimation()
+        }
+    }
+
+    private func scaleFor(_ index: Int) -> CGFloat {
+        guard !reduceMotion else { return 1.0 }
+        return phase == index ? 1.2 : 0.8
+    }
+
+    private func opacityFor(_ index: Int) -> Double {
+        guard !reduceMotion else { return 0.6 }
+        return phase == index ? 1.0 : 0.4
+    }
+
+    private func startAnimation() {
+        withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: false)) {
+            // Use a timer-based approach with proper animation
+            Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { timer in
+                // Check if view is still visible
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    phase = (phase + 1) % 3
+                }
+            }
+        }
+    }
+}
+
 /// Empty state view with logo and suggested prompts
 struct EmptyStateView: View {
     let onSuggestionTap: (String) -> Void
@@ -561,7 +694,7 @@ struct EmptyStateView: View {
 
     @available(iOS 26.0, macOS 26.0, *)
     private var glassSuggestionsList: some View {
-        GlassEffectContainer(spacing: 16) {
+        VStack(spacing: 8) {
             ForEach(suggestions, id: \.self) { suggestion in
                 Button {
                     onSuggestionTap(suggestion)
@@ -660,96 +793,6 @@ struct ToolStatusView: View {
         .padding(.vertical, 8)
         .background(backgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-struct ToolConfirmationSheet: View {
-    let confirmation: ToolConfirmation
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.largeTitle)
-                    .foregroundStyle(ClarissaTheme.gradient)
-
-                Text("Tool Confirmation")
-                    .font(.title2.bold())
-                    .gradientForeground()
-
-                Text("Clarissa wants to use the **\(confirmation.name)** tool")
-                    .multilineTextAlignment(.center)
-                    .accessibilityLabel("Clarissa wants to use the \(confirmation.name) tool")
-
-                GroupBox {
-                    ScrollView {
-                        Text(formatArguments(confirmation.arguments))
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 150)
-                }
-                .accessibilityLabel("Tool arguments")
-
-                Spacer()
-
-                // Action buttons with glass styles on iOS 26+
-                if #available(iOS 26.0, macOS 26.0, *) {
-                    HStack(spacing: 16) {
-                        Button("Deny", role: .cancel) {
-                            HapticManager.shared.lightTap()
-                            onCancel()
-                        }
-                        .buttonStyle(.glass)
-                        .tint(ClarissaTheme.pink)
-                        .accessibilityHint("Double-tap to deny this tool request")
-
-                        Button("Allow") {
-                            HapticManager.shared.success()
-                            onConfirm()
-                        }
-                        .buttonStyle(.glassProminent)
-                        .tint(ClarissaTheme.purple)
-                        .accessibilityHint("Double-tap to allow Clarissa to use this tool")
-                    }
-                } else {
-                    HStack(spacing: 16) {
-                        Button("Deny", role: .cancel) {
-                            HapticManager.shared.lightTap()
-                            onCancel()
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(ClarissaTheme.pink)
-                        .accessibilityHint("Double-tap to deny this tool request")
-
-                        Button("Allow") {
-                            HapticManager.shared.success()
-                            onConfirm()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ClarissaTheme.purple)
-                        .accessibilityHint("Double-tap to allow Clarissa to use this tool")
-                    }
-                }
-            }
-            .padding()
-            .onAppear {
-                HapticManager.shared.warning()
-            }
-        }
-        .tint(ClarissaTheme.purple)
-    }
-
-    private func formatArguments(_ json: String) -> String {
-        guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let pretty = try? JSONSerialization.data(withJSONObject: object, options: .prettyPrinted),
-              let string = String(data: pretty, encoding: .utf8) else {
-            return json
-        }
-        return string
     }
 }
 

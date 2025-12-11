@@ -8,9 +8,6 @@ enum ClarissaConstants {
     /// Default maximum iterations for the ReAct loop
     static let defaultMaxIterations = 10
 
-    /// Default auto-approve setting for tool confirmations
-    static let defaultAutoApprove = false
-
     // MARK: - Session Management
 
     /// Maximum number of messages to keep per session

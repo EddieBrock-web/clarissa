@@ -17,6 +17,10 @@ final class SpeechRecognizer: ObservableObject {
     // Audio engine wrapper that handles operations on the correct queue
     private let audioHandler = AudioEngineHandler()
 
+    /// Whether audio session is managed externally (e.g., by VoiceManager in voice mode)
+    /// When true, the recognizer won't configure or deactivate the audio session
+    var useExternalAudioSession: Bool = false
+
     init(locale: Locale = Locale(identifier: "en-US")) {
         speechRecognizer = SFSpeechRecognizer(locale: locale)
         isAvailable = speechRecognizer?.isAvailable ?? false
@@ -57,10 +61,14 @@ final class SpeechRecognizer: ObservableObject {
         // Use on-device recognition for privacy
         request.requiresOnDeviceRecognition = speechRecognizer.supportsOnDeviceRecognition
 
+        // Set task hint for better recognition accuracy
+        request.taskHint = .dictation
+
         self.recognitionRequest = request
 
         // Start audio engine on dedicated queue (avoids dispatch queue assertion)
-        try await audioHandler.start { [weak request] buffer in
+        // Skip session configuration if managed externally (e.g., voice mode)
+        try await audioHandler.start(skipSessionConfig: useExternalAudioSession) { [weak request] buffer in
             request?.append(buffer)
         }
 
@@ -99,7 +107,8 @@ final class SpeechRecognizer: ObservableObject {
         isRecording = false
 
         // Stop audio engine synchronously on dedicated queue
-        audioHandler.stopSync()
+        // Skip session deactivation if managed externally (e.g., voice mode)
+        audioHandler.stopSync(skipSessionDeactivation: useExternalAudioSession)
 
         request?.endAudio()
         task?.cancel()
@@ -146,7 +155,49 @@ private final class AudioEngineHandler: @unchecked Sendable {
     private let audioEngine = AVAudioEngine()
     private let queue = DispatchQueue(label: "com.clarissa.audioengine", qos: .userInitiated)
 
-    func start(bufferHandler: @escaping @Sendable (AVAudioPCMBuffer) -> Void) async throws {
+    /// Callback to notify when audio engine needs restart (e.g., after system reconfiguration)
+    var onConfigurationChange: (() -> Void)?
+
+    /// Current buffer handler for restart scenarios
+    private var currentBufferHandler: (@Sendable (AVAudioPCMBuffer) -> Void)?
+
+    init() {
+        setupConfigurationChangeObserver()
+    }
+
+    /// Set up observer for audio engine configuration changes (system resets)
+    private func setupConfigurationChangeObserver() {
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: audioEngine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            // Configuration changed - engine needs to be reconfigured
+            // This can happen when audio route changes or system reclaims resources
+            self.queue.async {
+                if self.audioEngine.isRunning {
+                    self.audioEngine.stop()
+                }
+                self.audioEngine.inputNode.removeTap(onBus: 0)
+
+                // Notify that configuration changed (caller may want to restart)
+                self.onConfigurationChange?()
+            }
+        }
+    }
+
+    /// Start audio capture
+    /// - Parameters:
+    ///   - skipSessionConfig: If true, skips audio session configuration (use when VoiceManager has already configured it)
+    ///   - bufferHandler: Callback for audio buffers
+    func start(
+        skipSessionConfig: Bool = false,
+        bufferHandler: @escaping @Sendable (AVAudioPCMBuffer) -> Void
+    ) async throws {
+        // Store handler for potential restart scenarios
+        currentBufferHandler = bufferHandler
+
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self] in
                 do {
@@ -156,10 +207,16 @@ private final class AudioEngineHandler: @unchecked Sendable {
                     }
                     audioEngine.inputNode.removeTap(onBus: 0)
 
-                    // Configure audio session
-                    let audioSession = AVAudioSession.sharedInstance()
-                    try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-                    try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+                    // Configure audio session unless already configured (e.g., by VoiceManager for voice mode)
+                    if !skipSessionConfig {
+                        let audioSession = AVAudioSession.sharedInstance()
+                        try audioSession.setCategory(
+                            .record,
+                            mode: .measurement,
+                            options: [.duckOthers, .allowBluetooth]
+                        )
+                        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+                    }
 
                     // Set up audio input
                     let inputNode = audioEngine.inputNode
@@ -185,7 +242,10 @@ private final class AudioEngineHandler: @unchecked Sendable {
         }
     }
 
-    func stop() async {
+    /// Stop audio capture
+    /// - Parameter skipSessionDeactivation: If true, skips audio session deactivation (use when VoiceManager manages the session)
+    func stop(skipSessionDeactivation: Bool = false) async {
+        currentBufferHandler = nil
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 if audioEngine.isRunning {
@@ -193,21 +253,32 @@ private final class AudioEngineHandler: @unchecked Sendable {
                 }
                 audioEngine.inputNode.removeTap(onBus: 0)
 
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                if !skipSessionDeactivation {
+                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                }
                 continuation.resume()
             }
         }
     }
 
-    func stopSync() {
+    /// Stop audio capture synchronously
+    /// - Parameter skipSessionDeactivation: If true, skips audio session deactivation (use when VoiceManager manages the session)
+    func stopSync(skipSessionDeactivation: Bool = false) {
+        currentBufferHandler = nil
         queue.sync { [self] in
             if audioEngine.isRunning {
                 audioEngine.stop()
             }
             audioEngine.inputNode.removeTap(onBus: 0)
 
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            if !skipSessionDeactivation {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
         }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }
 

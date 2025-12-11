@@ -9,12 +9,15 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     @Published var inputText: String = ""
     @Published var isLoading: Bool = false
     @Published var streamingContent: String = ""
-    @Published var pendingToolConfirmation: ToolConfirmation?
     @Published var errorMessage: String?
     @Published var currentProvider: String = ""
     @Published var canCancel: Bool = false
     @Published var isSettingUpProvider: Bool = true
     @Published var showNewSessionConfirmation: Bool = false
+    @Published var thinkingStatus: ThinkingStatus = .idle
+
+    // MARK: - Enhancement Properties
+    @Published var isEnhancing: Bool = false
 
     // MARK: - Voice Properties
     @Published var isRecording: Bool = false
@@ -26,17 +29,13 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     @Published var contextStats: ContextStats = .empty
 
     private var agent: Agent
-    private var toolConfirmationContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var appState: AppState?
     private var currentTask: Task<Void, Never>?
     private(set) var voiceManager: VoiceManager?
     private var voiceCancellables = Set<AnyCancellable>()
 
     init() {
-        // Read autoApproveTools setting
-        let autoApprove = UserDefaults.standard.bool(forKey: "autoApproveTools")
-        let config = AgentConfig(autoApprove: autoApprove)
-        self.agent = Agent(config: config)
+        self.agent = Agent()
         self.agent.callbacks = self
 
         // Set up provider (default to Foundation Models if available)
@@ -193,12 +192,8 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     /// Refresh provider with current settings
     func refreshProvider() {
         Task {
-            // Update agent config with current settings
-            let autoApprove = UserDefaults.standard.bool(forKey: "autoApproveTools")
-            let config = AgentConfig(autoApprove: autoApprove)
-            self.agent = Agent(config: config)
+            self.agent = Agent()
             self.agent.callbacks = self
-
             await setupProvider(for: appState?.selectedProvider)
         }
     }
@@ -248,6 +243,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         isLoading = false
         canCancel = false
         streamingContent = ""
+        thinkingStatus = .idle
     }
 
     /// Retry the last user message
@@ -363,22 +359,18 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         await SessionManager.shared.deleteSession(id: id)
     }
 
-    func confirmTool(_ approved: Bool) {
-        guard let confirmation = pendingToolConfirmation else { return }
-        toolConfirmationContinuations[confirmation.id]?.resume(returning: approved)
-        toolConfirmationContinuations.removeValue(forKey: confirmation.id)
-        pendingToolConfirmation = nil
-    }
-
     // MARK: - AgentCallbacks
 
     func onThinking() {
         // Clear streaming content for each new ReAct iteration
         streamingContent = ""
+        thinkingStatus = .thinking
     }
 
     func onToolCall(name: String, arguments: String) {
         let displayName = formatToolDisplayName(name)
+        thinkingStatus = .usingTool(displayName)
+
         let toolMessage = ChatMessage(
             role: .tool,
             content: displayName,
@@ -388,19 +380,12 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         messages.append(toolMessage)
     }
 
-    func onToolConfirmation(name: String, arguments: String) async -> Bool {
-        let confirmation = ToolConfirmation(name: name, arguments: arguments)
-        pendingToolConfirmation = confirmation
-
-        return await withCheckedContinuation { continuation in
-            self.toolConfirmationContinuations[confirmation.id] = continuation
-        }
-    }
-
     func onToolResult(name: String, result: String) {
         if let index = messages.lastIndex(where: { $0.toolName == name }) {
             messages[index].toolStatus = .completed
         }
+        // After tool completes, we're processing the result
+        thinkingStatus = .processing
     }
 
     /// Format tool name for display
@@ -432,9 +417,16 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
 
     func onStreamChunk(chunk: String) {
         streamingContent += chunk
+        // Only hide thinking indicator once we have visible content to show
+        // This prevents a visual gap when first chunks are empty
+        if thinkingStatus.isActive && !streamingContent.isEmpty {
+            thinkingStatus = .idle
+        }
     }
 
     func onResponse(content: String) {
+        thinkingStatus = .idle
+
         let assistantMessage = ChatMessage(role: .assistant, content: content)
         messages.append(assistantMessage)
 
@@ -452,6 +444,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     }
 
     func onError(error: Error) {
+        thinkingStatus = .idle
         errorMessage = error.localizedDescription
     }
 
@@ -460,6 +453,50 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     /// Update context statistics from the agent
     private func updateContextStats() {
         contextStats = agent.getContextStats()
+    }
+
+    // MARK: - Prompt Enhancement
+
+    /// Enhance the current input prompt using the LLM
+    func enhanceCurrentPrompt() async {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isEnhancing else { return }
+
+        // Get the current provider from the agent
+        guard let provider = getCurrentProvider() else {
+            errorMessage = "No provider available for enhancement"
+            return
+        }
+
+        isEnhancing = true
+        HapticManager.shared.lightTap()
+
+        do {
+            let enhanced = try await PromptEnhancer.shared.enhance(text, using: provider)
+            inputText = enhanced
+            HapticManager.shared.success()
+        } catch {
+            ClarissaLogger.agent.error("Prompt enhancement failed: \(error.localizedDescription, privacy: .public)")
+            errorMessage = "Enhancement failed: \(error.localizedDescription)"
+            HapticManager.shared.error()
+        }
+
+        isEnhancing = false
+    }
+
+    /// Get the current LLM provider (creates one if needed)
+    private func getCurrentProvider() -> (any LLMProvider)? {
+        // Try Foundation Models first
+        if #available(iOS 26.0, *) {
+            let provider = FoundationModelsProvider()
+            return provider
+        }
+
+        // Fall back to OpenRouter
+        let apiKey = KeychainManager.shared.get(key: KeychainManager.Keys.openRouterApiKey) ?? ""
+        let model = UserDefaults.standard.string(forKey: "selectedModel") ?? "anthropic/claude-sonnet-4"
+        guard !apiKey.isEmpty else { return nil }
+        return OpenRouterProvider(apiKey: apiKey, model: model)
     }
 
     // MARK: - Voice Control Methods
@@ -493,6 +530,28 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         voiceManager?.stopSpeaking()
     }
 
+    /// Speak arbitrary text using text-to-speech
+    func speak(text: String) {
+        voiceManager?.speak(text)
+    }
+
+    /// Speak the last assistant response using text-to-speech
+    func speakLastResponse() {
+        guard let voiceManager = voiceManager else { return }
+
+        // Find the last assistant message
+        guard let lastAssistantMessage = messages.last(where: { $0.role == .assistant }) else {
+            return
+        }
+
+        voiceManager.speak(lastAssistantMessage.content)
+    }
+
+    /// Check if there's an assistant message that can be spoken
+    var canSpeakLastResponse: Bool {
+        messages.contains(where: { $0.role == .assistant })
+    }
+
     /// Check if voice features are authorized
     func requestVoiceAuthorization() async -> Bool {
         guard let voiceManager = voiceManager else { return false }
@@ -507,6 +566,33 @@ enum ToolStatus {
     case failed
 }
 
+/// Current thinking/processing status for the typing indicator
+enum ThinkingStatus: Equatable {
+    case idle
+    case thinking
+    case usingTool(String)
+    case processing
+
+    /// Display text for the status
+    var displayText: String {
+        switch self {
+        case .idle:
+            return ""
+        case .thinking:
+            return "Thinking"
+        case .usingTool(let toolName):
+            return toolName
+        case .processing:
+            return "Processing"
+        }
+    }
+
+    /// Whether the status is active (should show indicator)
+    var isActive: Bool {
+        self != .idle
+    }
+}
+
 /// A message in the chat UI
 struct ChatMessage: Identifiable {
     let id = UUID()
@@ -516,11 +602,3 @@ struct ChatMessage: Identifiable {
     var toolStatus: ToolStatus?
     let timestamp = Date()
 }
-
-/// Pending tool confirmation
-struct ToolConfirmation: Identifiable {
-    let id = UUID()
-    let name: String
-    let arguments: String
-}
-

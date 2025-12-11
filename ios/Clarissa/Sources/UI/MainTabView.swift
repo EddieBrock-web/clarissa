@@ -71,9 +71,20 @@ struct ChatTabContent: View {
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
                 .toolbar {
+                    #if os(iOS)
+                    ToolbarItem(placement: .topBarLeading) {
+                        contextIndicator
+                    }
+                    #else
+                    ToolbarItem(placement: .navigation) {
+                        contextIndicator
+                    }
+                    #endif
+
                     ToolbarItem(placement: .principal) {
                         titleView
                     }
+
                     #if os(iOS)
                     ToolbarItem(placement: .topBarTrailing) {
                         toolbarButtons
@@ -105,14 +116,16 @@ struct ChatTabContent: View {
     }
 
     private var titleView: some View {
-        HStack(spacing: 8) {
-            Text("Clarissa")
-                .font(.headline.bold())
-                .gradientForeground()
-            if viewModel.contextStats.messageCount > 0 {
-                ContextIndicatorView(stats: viewModel.contextStats) {
-                    showContextDetails = true
-                }
+        Text("Clarissa")
+            .font(.headline.bold())
+            .gradientForeground()
+    }
+
+    @ViewBuilder
+    private var contextIndicator: some View {
+        if viewModel.contextStats.messageCount > 0 {
+            ContextIndicatorView(stats: viewModel.contextStats) {
+                showContextDetails = true
             }
         }
     }

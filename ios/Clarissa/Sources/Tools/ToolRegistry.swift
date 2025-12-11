@@ -63,11 +63,6 @@ final class ToolRegistry {
             .sorted { $0.priority < $1.priority }
             .map { $0.toDefinition() }
     }
-    
-    /// Check if a tool requires confirmation
-    func requiresConfirmation(_ name: String) -> Bool {
-        tools[name]?.requiresConfirmation ?? false
-    }
 
     /// Execute a tool by name
     /// Tool execution happens off the main thread to prevent UI freezes

@@ -6,7 +6,6 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var appState: AppState
     @AppStorage("selectedModel") private var selectedModel: String = "anthropic/claude-sonnet-4"
-    @AppStorage("autoApproveTools") private var autoApproveTools: Bool = false
     @AppStorage("voiceOutputEnabled") private var voiceOutputEnabled: Bool = true
     @AppStorage("selectedVoiceIdentifier") private var selectedVoiceIdentifier: String = ""
     @AppStorage("speechRate") private var speechRate: Double = 0.5
@@ -17,6 +16,7 @@ struct SettingsView: View {
     @State private var showMemories = false
     @State private var showingSaveConfirmation = false
     @State private var availableVoices: [AVSpeechSynthesisVoice] = []
+    @State private var testSynthesizer: AVSpeechSynthesizer?
 
     // Namespace for glass morphing in settings
     @Namespace private var settingsNamespace
@@ -100,18 +100,10 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-
-                    Toggle(isOn: $autoApproveTools) {
-                        HStack {
-                            Image(systemName: "checkmark.seal")
-                                .foregroundStyle(ClarissaTheme.cyan)
-                            Text("Auto-approve Tools")
-                        }
-                    }
                 } header: {
                     Text("Tools")
                 } footer: {
-                    Text("Configure which tools are available. When auto-approve is enabled, tools execute without asking for confirmation.")
+                    Text("Configure which tools are available to the assistant.")
                 }
 
                 Section {
@@ -185,7 +177,15 @@ struct SettingsView: View {
                 } header: {
                     Text("Voice")
                 } footer: {
-                    Text("When enabled, Clarissa will speak responses aloud in voice mode.")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("When enabled, Clarissa will speak responses aloud in voice mode.")
+                        if voiceOutputEnabled && availableVoices.isEmpty {
+                            Text("No high-quality voices found. Download Siri voices in Settings → Accessibility → Spoken Content → Voices.")
+                                .foregroundStyle(.orange)
+                        } else if voiceOutputEnabled {
+                            Text("★ = Premium quality. Download more voices in Settings → Accessibility → Spoken Content → Voices.")
+                        }
+                    }
                 }
 
                 Section {
@@ -227,17 +227,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    doneButton
-                }
-            }
-            #else
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    doneButton
-                }
-            }
             #endif
         }
         .tint(ClarissaTheme.purple)
@@ -253,20 +242,38 @@ struct SettingsView: View {
     // MARK: - Voice Helpers
 
     private func loadAvailableVoices() {
-        // Get high-quality voices for the current locale
-        let locale = Locale.current
-        let voices = AVSpeechSynthesisVoice.speechVoices()
+        // Only load high-quality Siri voices (Premium/Enhanced)
+        // These must be downloaded in Settings > Accessibility > Spoken Content > Voices
+        let preferredLanguage = Locale.current.language.languageCode?.identifier ?? "en"
+
+        availableVoices = AVSpeechSynthesisVoice.speechVoices()
             .filter { voice in
-                // Prefer enhanced/premium voices
-                voice.quality == .enhanced || voice.language.hasPrefix(locale.language.languageCode?.identifier ?? "en")
+                // Only Premium or Enhanced quality (high-quality Siri voices)
+                voice.quality == .premium || voice.quality == .enhanced
             }
-            .sorted { $0.name < $1.name }
-        availableVoices = voices
+            .filter { voice in
+                // Match user's language preference
+                voice.language.hasPrefix(preferredLanguage)
+            }
+            .sorted { voice1, voice2 in
+                // Sort: Premium first, then Enhanced, then alphabetically
+                if voice1.quality != voice2.quality {
+                    return voice1.quality.rawValue > voice2.quality.rawValue
+                }
+                return voice1.name < voice2.name
+            }
     }
 
     private func voiceDisplayName(for voice: AVSpeechSynthesisVoice) -> String {
-        let quality = voice.quality == .enhanced ? " (Enhanced)" : ""
-        return "\(voice.name)\(quality)"
+        let qualityIndicator: String
+        switch voice.quality {
+        case .premium: qualityIndicator = " ★"
+        case .enhanced: qualityIndicator = ""
+        default: qualityIndicator = ""
+        }
+        // Extract region from language code (e.g., "en-US" → "US")
+        let region = voice.language.split(separator: "-").dropFirst().first.map { " (\($0))" } ?? ""
+        return "\(voice.name)\(region)\(qualityIndicator)"
     }
 
     private var speechRateLabel: String {
@@ -279,13 +286,18 @@ struct SettingsView: View {
     }
 
     private func testVoice() {
+        // Create and retain synthesizer to prevent deallocation during playback
         let synthesizer = AVSpeechSynthesizer()
+        testSynthesizer = synthesizer
+
         let utterance = AVSpeechUtterance(string: "Hello, I'm Clarissa, your AI assistant.")
         utterance.rate = Float(speechRate) * AVSpeechUtteranceMaximumSpeechRate
+
         if !selectedVoiceIdentifier.isEmpty,
            let voice = AVSpeechSynthesisVoice(identifier: selectedVoiceIdentifier) {
             utterance.voice = voice
         }
+
         synthesizer.speak(utterance)
     }
 
@@ -385,32 +397,6 @@ struct SettingsView: View {
             return String(parts[1]).replacingOccurrences(of: "-", with: " ").capitalized
         }
         return model
-    }
-
-    // MARK: - Glass Button Components
-
-    @ViewBuilder
-    private var doneButton: some View {
-        if #available(iOS 26.0, macOS 26.0, *) {
-            Button("Done") {
-                HapticManager.shared.lightTap()
-                onProviderChange?()
-                dismiss()
-            }
-            .buttonStyle(.glassProminent)
-            .tint(ClarissaTheme.purple)
-            .accessibilityLabel("Done")
-            .accessibilityHint("Double-tap to save settings and close")
-        } else {
-            Button("Done") {
-                HapticManager.shared.lightTap()
-                onProviderChange?()
-                dismiss()
-            }
-            .foregroundStyle(ClarissaTheme.purple)
-            .accessibilityLabel("Done")
-            .accessibilityHint("Double-tap to save settings and close")
-        }
     }
 }
 
