@@ -252,3 +252,73 @@ struct MemoryTests {
     }
 }
 
+@Suite("Error Mapper Tests")
+struct ErrorMapperTests {
+
+    @Test("Agent error mapping - max iterations")
+    func testAgentErrorMaxIterations() {
+        let error = AgentError.maxIterationsReached
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("loop") || message.contains("stuck"))
+    }
+
+    @Test("Agent error mapping - no provider")
+    func testAgentErrorNoProvider() {
+        let error = AgentError.noProvider
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("provider") || message.contains("Settings"))
+    }
+
+    @Test("Tool error mapping - permission denied")
+    func testToolErrorPermissionDenied() {
+        let error = ToolError.permissionDenied("Calendar")
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("Calendar") || message.contains("permission"))
+    }
+
+    @Test("Tool error mapping - invalid arguments")
+    func testToolErrorInvalidArguments() {
+        let error = ToolError.invalidArguments("missing required field")
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("understand") || message.contains("rephras"))
+    }
+
+    @Test("URL error mapping - not connected")
+    func testURLErrorNotConnected() {
+        let error = URLError(.notConnectedToInternet)
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("offline") || message.contains("internet"))
+    }
+
+    @Test("URL error mapping - timeout")
+    func testURLErrorTimeout() {
+        let error = URLError(.timedOut)
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("long") || message.contains("again"))
+    }
+
+    @Test("Generic error fallback")
+    func testGenericErrorFallback() {
+        struct CustomError: Error {}
+        let error = CustomError()
+        let message = ErrorMapper.userFriendlyMessage(for: error)
+        #expect(message.contains("wrong") || message.contains("again"))
+    }
+}
+
+@Suite("Agent Config Tests")
+struct AgentConfigTests {
+
+    @Test("Agent config with custom iterations")
+    func testAgentConfigIterations() {
+        let config = AgentConfig(maxIterations: 20, autoApprove: false)
+        #expect(config.maxIterations == 20)
+    }
+
+    @Test("Agent config auto approve")
+    func testAgentConfigAutoApprove() {
+        let config = AgentConfig(maxIterations: 10, autoApprove: true)
+        #expect(config.autoApprove == true)
+    }
+}
+

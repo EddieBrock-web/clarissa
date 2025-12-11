@@ -2,8 +2,8 @@ import Foundation
 
 /// Configuration for the agent
 struct AgentConfig {
-    var maxIterations: Int = 10
-    var autoApprove: Bool = false
+    var maxIterations: Int = ClarissaConstants.defaultMaxIterations
+    var autoApprove: Bool = ClarissaConstants.defaultAutoApprove
 }
 
 // MARK: - Token Management
@@ -139,7 +139,10 @@ final class Agent: ObservableObject {
 
     /// Run the agent with a user message
     func run(_ userMessage: String) async throws -> String {
+        ClarissaLogger.agent.info("Starting agent run with message: \(userMessage.prefix(50), privacy: .public)...")
+
         guard let provider = provider else {
+            ClarissaLogger.agent.error("No provider configured")
             throw AgentError.noProvider
         }
 
@@ -212,11 +215,14 @@ final class Agent: ObservableObject {
                     
                     // Execute tool
                     do {
+                        ClarissaLogger.tools.info("Executing tool: \(toolCall.name, privacy: .public)")
                         let result = try await toolRegistry.execute(name: toolCall.name, arguments: toolCall.arguments)
                         let toolMessage = Message.tool(callId: toolCall.id, name: toolCall.name, content: result)
                         messages.append(toolMessage)
                         callbacks?.onToolResult(name: toolCall.name, result: result)
+                        ClarissaLogger.tools.info("Tool \(toolCall.name, privacy: .public) completed successfully")
                     } catch {
+                        ClarissaLogger.tools.error("Tool \(toolCall.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                         let errorResult = "{\"error\": \"\(error.localizedDescription)\"}"
                         let toolMessage = Message.tool(callId: toolCall.id, name: toolCall.name, content: errorResult)
                         messages.append(toolMessage)
@@ -225,12 +231,14 @@ final class Agent: ObservableObject {
                 }
                 continue // Continue loop for next response
             }
-            
+
             // No tool calls - final response
+            ClarissaLogger.agent.info("Agent run completed with response")
             callbacks?.onResponse(content: fullContent)
             return fullContent
         }
-        
+
+        ClarissaLogger.agent.warning("Agent reached max iterations")
         throw AgentError.maxIterationsReached
     }
     

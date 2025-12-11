@@ -11,6 +11,11 @@ public final class AppState: ObservableObject {
         isOnboardingComplete = true
         UserDefaults.standard.set(true, forKey: "onboardingComplete")
     }
+
+    public func resetOnboarding() {
+        isOnboardingComplete = false
+        UserDefaults.standard.set(false, forKey: "onboardingComplete")
+    }
 }
 
 public enum LLMProviderType: String, CaseIterable, Identifiable, Sendable {

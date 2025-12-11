@@ -341,8 +341,8 @@ struct AppleRememberTool: Tool {
 
     @Generable(description: "Memory storage parameters")
     struct Arguments {
-        @Guide(description: "The information to remember for future conversations")
-        let information: String
+        @Guide(description: "The content to remember for future conversations")
+        let content: String
     }
 
     init(wrapping tool: RememberTool) {
@@ -351,7 +351,7 @@ struct AppleRememberTool: Tool {
 
     func call(arguments: Arguments) async throws -> String {
         logToolCall(name, arguments)
-        let dict: [String: Any] = ["information": arguments.information]
+        let dict: [String: Any] = ["content": arguments.content]
         let jsonString = dict.toJSONString()
         let result = try await underlyingTool.execute(arguments: jsonString)
         logToolResult(name, result)

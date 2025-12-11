@@ -12,9 +12,11 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     @Published var errorMessage: String?
     @Published var currentProvider: String = ""
     @Published var canCancel: Bool = false
+    @Published var isSettingUpProvider: Bool = true
+    @Published var showNewSessionConfirmation: Bool = false
 
     private var agent: Agent
-    private var toolConfirmationContinuation: CheckedContinuation<Bool, Never>?
+    private var toolConfirmationContinuations: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var appState: AppState?
     private var currentTask: Task<Void, Never>?
 
@@ -29,6 +31,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         Task {
             await setupProvider()
             await loadCurrentSession()
+            isSettingUpProvider = false
         }
     }
 
@@ -36,13 +39,17 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     func configure(with appState: AppState) {
         self.appState = appState
         Task {
+            isSettingUpProvider = true
             await setupProvider(for: appState.selectedProvider)
+            isSettingUpProvider = false
         }
     }
 
     /// Switch to a different provider
     func switchProvider(to providerType: LLMProviderType) async {
+        isSettingUpProvider = true
         await setupProvider(for: providerType)
+        isSettingUpProvider = false
     }
 
     private func setupProvider(for providerType: LLMProviderType? = nil) async {
@@ -123,7 +130,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
                 // User cancelled - don't show error
                 streamingContent = ""
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = ErrorMapper.userFriendlyMessage(for: error)
             }
 
             isLoading = false
@@ -157,20 +164,36 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         sendMessage()
     }
 
+    /// Request to start a new session (may show confirmation if messages exist)
+    func requestNewSession() {
+        // If there are messages, show confirmation first
+        if !messages.isEmpty {
+            showNewSessionConfirmation = true
+        } else {
+            startNewSession()
+        }
+    }
+
+    /// Actually start a new session (called after confirmation or if no messages)
     func startNewSession() {
+        showNewSessionConfirmation = false
+
         // Cancel any running task first
         currentTask?.cancel()
         currentTask = nil
         isLoading = false
         canCancel = false
 
-        Task {
-            _ = await SessionManager.shared.startNewSession()
-        }
+        // Clear UI state immediately
         messages.removeAll()
         agent.reset()
         streamingContent = ""
         errorMessage = nil
+
+        // Create new session in background (actor ensures thread safety)
+        Task {
+            _ = await SessionManager.shared.startNewSession()
+        }
     }
 
     /// Load the current session from persistence
@@ -226,14 +249,20 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         await SessionManager.shared.getAllSessions()
     }
 
+    /// Get the current session ID
+    func getCurrentSessionId() async -> UUID? {
+        await SessionManager.shared.getCurrentSessionId()
+    }
+
     /// Delete a session
     func deleteSession(id: UUID) async {
         await SessionManager.shared.deleteSession(id: id)
     }
 
     func confirmTool(_ approved: Bool) {
-        toolConfirmationContinuation?.resume(returning: approved)
-        toolConfirmationContinuation = nil
+        guard let confirmation = pendingToolConfirmation else { return }
+        toolConfirmationContinuations[confirmation.id]?.resume(returning: approved)
+        toolConfirmationContinuations.removeValue(forKey: confirmation.id)
         pendingToolConfirmation = nil
     }
 
@@ -256,10 +285,11 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     }
 
     func onToolConfirmation(name: String, arguments: String) async -> Bool {
-        pendingToolConfirmation = ToolConfirmation(name: name, arguments: arguments)
+        let confirmation = ToolConfirmation(name: name, arguments: arguments)
+        pendingToolConfirmation = confirmation
 
         return await withCheckedContinuation { continuation in
-            self.toolConfirmationContinuation = continuation
+            self.toolConfirmationContinuations[confirmation.id] = continuation
         }
     }
 
@@ -278,12 +308,16 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
             return "Getting location"
         case "calculator":
             return "Calculating"
-        case "web_search":
-            return "Searching the web"
-        case "timer":
-            return "Setting timer"
-        case "reminder":
-            return "Creating reminder"
+        case "web_fetch":
+            return "Fetching web content"
+        case "calendar":
+            return "Checking calendar"
+        case "contacts":
+            return "Searching contacts"
+        case "reminders":
+            return "Managing reminders"
+        case "remember":
+            return "Saving to memory"
         default:
             // Convert snake_case to Title Case
             return name.split(separator: "_")

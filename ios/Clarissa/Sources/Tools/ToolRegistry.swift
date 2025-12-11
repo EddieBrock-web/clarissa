@@ -70,12 +70,16 @@ final class ToolRegistry {
     }
 
     /// Execute a tool by name
+    /// Tool execution happens off the main thread to prevent UI freezes
     func execute(name: String, arguments: String) async throws -> String {
         guard let tool = tools[name] else {
             throw ToolError.notAvailable("Tool '\(name)' not found")
         }
 
-        return try await tool.execute(arguments: arguments)
+        // Execute tool off the main actor to prevent UI blocking
+        return try await Task.detached(priority: .userInitiated) {
+            try await tool.execute(arguments: arguments)
+        }.value
     }
 
     #if canImport(FoundationModels)

@@ -14,6 +14,25 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Provider setup loading state
+            if viewModel.isSettingUpProvider {
+                Spacer()
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(ClarissaTheme.purple)
+                    Text("Setting up...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            } else if viewModel.messages.isEmpty && viewModel.streamingContent.isEmpty && !viewModel.isLoading {
+                // Empty state with suggestions
+                EmptyStateView(onSuggestionTap: { suggestion in
+                    viewModel.inputText = suggestion
+                    viewModel.sendMessage()
+                })
+            } else {
             // Messages list
             ScrollViewReader { proxy in
                 ScrollView {
@@ -24,17 +43,18 @@ struct ChatView: View {
                                 onRetry: message.role == .assistant ? { viewModel.retryLastMessage() } : nil
                             )
                             .id(message.id)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: message.role == .user ? .trailing : .leading)
+                                    .combined(with: .opacity),
+                                removal: .opacity
+                            ))
                         }
+                        .animation(.easeOut(duration: 0.25), value: viewModel.messages.count)
                         
-                        // Streaming content
+                        // Streaming content with typing indicator
                         if !viewModel.streamingContent.isEmpty {
-                            MessageBubble(
-                                message: ChatMessage(
-                                    role: .assistant,
-                                    content: viewModel.streamingContent
-                                )
-                            )
-                            .id("streaming")
+                            StreamingMessageBubble(content: viewModel.streamingContent)
+                                .id("streaming")
                         }
                         
                         // Loading indicator with cancel button
@@ -90,6 +110,8 @@ struct ChatView: View {
                         triggerHaptic()
                         viewModel.sendMessage()
                     }
+                    .accessibilityLabel("Message input")
+                    .accessibilityHint("Type your message to Clarissa")
 
                 let isDisabled = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isLoading
 
@@ -102,9 +124,12 @@ struct ChatView: View {
                         .foregroundStyle(isDisabled ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(ClarissaTheme.gradient))
                 }
                 .disabled(isDisabled)
+                .accessibilityLabel("Send message")
+                .accessibilityHint(isDisabled ? "Enter a message first" : "Send your message")
             }
             .padding()
             .background(.bar)
+            } // end else (provider ready)
         }
         .alert("Error", isPresented: .init(
             get: { viewModel.errorMessage != nil },
@@ -122,6 +147,10 @@ struct ChatView: View {
             )
             .presentationDetents([.medium])
         }
+        #if os(macOS)
+        // Keyboard shortcuts for Mac
+        .keyboardShortcut(.return, modifiers: .command) // Cmd+Return to send
+        #endif
     }
 
     private func triggerHaptic() {
@@ -136,6 +165,12 @@ struct MessageBubble: View {
     var onRetry: (() -> Void)? = nil
 
     @State private var showCopied = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// Max width for message bubbles on larger screens (iPad/Mac)
+    private var maxBubbleWidth: CGFloat? {
+        horizontalSizeClass == .regular ? 600 : nil
+    }
 
     var body: some View {
         HStack {
@@ -145,7 +180,8 @@ struct MessageBubble: View {
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
                 if message.role == .tool {
-                    ToolStatusView(message: message)
+                    ToolStatusView(message: message, onRetry: message.toolStatus == .failed ? onRetry : nil)
+                        .accessibilityLabel(toolAccessibilityLabel)
                 } else if message.role == .user {
                     messageContent
                         .padding(.horizontal, 16)
@@ -153,9 +189,11 @@ struct MessageBubble: View {
                         .background(ClarissaTheme.userBubbleGradient)
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .frame(maxWidth: maxBubbleWidth, alignment: .trailing)
                         .contextMenu {
                             copyButton
                         }
+                        .accessibilityLabel("You said: \(message.content)")
                 } else {
                     messageContent
                         .padding(.horizontal, 16)
@@ -163,6 +201,7 @@ struct MessageBubble: View {
                         .background(ClarissaTheme.assistantBubble)
                         .foregroundStyle(.primary)
                         .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .frame(maxWidth: maxBubbleWidth, alignment: .leading)
                         .contextMenu {
                             copyButton
                             if let onRetry = onRetry {
@@ -173,6 +212,7 @@ struct MessageBubble: View {
                                 }
                             }
                         }
+                        .accessibilityLabel("Clarissa said: \(message.content)")
                 }
 
                 // Show copied confirmation
@@ -235,30 +275,179 @@ struct MessageBubble: View {
             return AttributedString(message.content)
         }
     }
+
+    private var toolAccessibilityLabel: String {
+        let status: String
+        switch message.toolStatus {
+        case .running:
+            status = "running"
+        case .completed:
+            status = "completed"
+        case .failed:
+            status = "failed"
+        case .none:
+            status = ""
+        }
+        return "Tool \(message.content) \(status)"
+    }
+}
+
+/// Message bubble with pulsing cursor for streaming content
+struct StreamingMessageBubble: View {
+    let content: String
+    @State private var cursorVisible = true
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var maxBubbleWidth: CGFloat? {
+        horizontalSizeClass == .regular ? 600 : nil
+    }
+
+    var body: some View {
+        HStack {
+            HStack(alignment: .lastTextBaseline, spacing: 0) {
+                Text(content)
+                    .textSelection(.enabled)
+
+                // Pulsing cursor
+                Text("|")
+                    .fontWeight(.light)
+                    .opacity(cursorVisible ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: cursorVisible)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(ClarissaTheme.assistantBubble)
+            .foregroundStyle(.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .frame(maxWidth: maxBubbleWidth, alignment: .leading)
+
+            Spacer(minLength: 60)
+        }
+        .onAppear {
+            cursorVisible = false
+        }
+    }
+}
+
+/// Empty state view with logo and suggested prompts
+struct EmptyStateView: View {
+    let onSuggestionTap: (String) -> Void
+
+    private let suggestions = [
+        "What's the weather like today?",
+        "Set a reminder for tomorrow at 9am",
+        "What can you help me with?",
+        "Tell me a fun fact"
+    ]
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // Logo
+            VStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 48))
+                    .foregroundStyle(ClarissaTheme.gradient)
+
+                Text("Clarissa")
+                    .font(.title.bold())
+                    .gradientForeground()
+
+                Text("Your AI assistant")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            // Suggested prompts
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Try asking:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+
+                ForEach(suggestions, id: \.self) { suggestion in
+                    Button {
+                        onSuggestionTap(suggestion)
+                    } label: {
+                        HStack {
+                            Text(suggestion)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "arrow.up.circle.fill")
+                                .foregroundStyle(ClarissaTheme.gradient)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(ClarissaTheme.assistantBubble)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+        }
+        .frame(maxWidth: 500)
+    }
 }
 
 /// View for displaying tool execution status
 struct ToolStatusView: View {
     let message: ChatMessage
+    var onRetry: (() -> Void)? = nil
+
+    /// Color based on tool status: yellow for running, green for completed, red for failed
+    private var statusColor: Color {
+        switch message.toolStatus {
+        case .running:
+            return .yellow
+        case .completed:
+            return .green
+        case .failed:
+            return .red
+        case .none:
+            return ClarissaTheme.cyan
+        }
+    }
+
+    /// Background color with appropriate opacity
+    private var backgroundColor: Color {
+        statusColor.opacity(0.15)
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             if message.toolStatus == .running {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(ClarissaTheme.cyan)
+                    .tint(statusColor)
             } else {
                 Image(systemName: message.toolStatus == .completed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(message.toolStatus == .completed ? ClarissaTheme.cyan : .red)
+                    .foregroundStyle(statusColor)
             }
 
             Text(message.content)
                 .font(.subheadline)
+
+            // Retry button for failed tools
+            if message.toolStatus == .failed, let onRetry = onRetry {
+                Button {
+                    onRetry()
+                } label: {
+                    Image(systemName: "arrow.clockwise.circle.fill")
+                        .foregroundStyle(ClarissaTheme.purple)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(ClarissaTheme.cyan.opacity(0.1))
+        .background(backgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -356,43 +545,36 @@ struct SessionHistoryView: View {
     @ObservedObject var viewModel: ChatViewModel
     let onDismiss: () -> Void
     @State private var sessions: [Session] = []
+    @State private var currentSessionId: UUID?
 
     var body: some View {
         NavigationStack {
             List {
                 if sessions.isEmpty {
-                    Text("No conversation history yet.")
-                        .foregroundStyle(.secondary)
+                    ContentUnavailableView(
+                        "No History",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("Your conversations will appear here.")
+                    )
                 } else {
                     ForEach(sessions) { session in
-                        Button {
-                            Task {
-                                await viewModel.switchToSession(id: session.id)
-                                onDismiss()
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(session.title)
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                HStack {
-                                    Text("\(session.messages.count) messages")
-                                    Text("•")
-                                    Text(session.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                        SessionRowView(
+                            session: session,
+                            isCurrentSession: session.id == currentSessionId,
+                            onTap: {
+                                Task {
+                                    await viewModel.switchToSession(id: session.id)
+                                    onDismiss()
                                 }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 4)
-                        }
+                        )
                     }
                     .onDelete(perform: deleteSessions)
                 }
             }
             .navigationTitle("History")
             .refreshable {
-                sessions = await viewModel.getAllSessions()
+                await loadData()
             }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -417,8 +599,13 @@ struct SessionHistoryView: View {
         }
         .tint(ClarissaTheme.purple)
         .task {
-            sessions = await viewModel.getAllSessions()
+            await loadData()
         }
+    }
+
+    private func loadData() async {
+        sessions = await viewModel.getAllSessions()
+        currentSessionId = await viewModel.getCurrentSessionId()
     }
 
     private func deleteSessions(at offsets: IndexSet) {
@@ -429,6 +616,76 @@ struct SessionHistoryView: View {
             }
         }
         sessions.remove(atOffsets: offsets)
+    }
+}
+
+/// Row view for a single session in history
+struct SessionRowView: View {
+    let session: Session
+    let isCurrentSession: Bool
+    let onTap: () -> Void
+
+    /// Get a preview of the last user message
+    private var messagePreview: String? {
+        session.messages.last(where: { $0.role == .user })?.content
+    }
+
+    /// Format relative time (e.g., "2 hours ago", "Yesterday")
+    private var relativeTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: session.updatedAt, relativeTo: Date())
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(session.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        if isCurrentSession {
+                            Text("Current")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(ClarissaTheme.purple)
+                                .clipShape(Capsule())
+                        }
+                    }
+
+                    // Message preview
+                    if let preview = messagePreview {
+                        Text(preview)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "message")
+                            .font(.caption2)
+                        Text("\(session.messages.count)")
+                        Text("•")
+                        Text(relativeTime)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 4)
+        }
     }
 }
 

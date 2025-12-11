@@ -1,8 +1,6 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "dev.rye.Clarissa", category: "SessionManager")
-
 /// Manages conversation sessions
 actor SessionManager {
     static let shared = SessionManager()
@@ -13,10 +11,10 @@ actor SessionManager {
     private var isLoaded = false
 
     /// Maximum number of messages to keep per session
-    static let maxMessagesPerSession = 100
+    static let maxMessagesPerSession = ClarissaConstants.maxMessagesPerSession
 
     /// Maximum number of sessions to keep
-    static let maxSessions = 50
+    static let maxSessions = ClarissaConstants.maxSessions
 
     private init() {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -53,6 +51,7 @@ actor SessionManager {
         let session = Session()
         sessions.insert(session, at: 0)
         currentSessionId = session.id
+        ClarissaLogger.persistence.info("Started new session: \(session.id.uuidString, privacy: .public)")
 
         // Trim old sessions if needed
         trimOldSessions()
@@ -108,6 +107,12 @@ actor SessionManager {
         await save()
     }
 
+    /// Get the current session ID
+    func getCurrentSessionId() async -> UUID? {
+        await ensureLoaded()
+        return currentSessionId
+    }
+
     /// Switch to a different session
     func switchToSession(id: UUID) async -> Session? {
         await ensureLoaded()
@@ -124,7 +129,7 @@ actor SessionManager {
         if sessions.count > Self.maxSessions {
             let toRemove = sessions.count - Self.maxSessions
             sessions.removeLast(toRemove)
-            logger.info("Trimmed \(toRemove) old sessions")
+            ClarissaLogger.persistence.info("Trimmed \(toRemove) old sessions")
         }
     }
 
@@ -139,9 +144,9 @@ actor SessionManager {
             sessions = try JSONDecoder().decode([Session].self, from: data)
             currentSessionId = sessions.first?.id
             isLoaded = true
-            logger.info("Loaded \(self.sessions.count) sessions")
+            ClarissaLogger.persistence.info("Loaded \(self.sessions.count) sessions")
         } catch {
-            logger.error("Failed to load sessions: \(error.localizedDescription)")
+            ClarissaLogger.persistence.error("Failed to load sessions: \(error.localizedDescription)")
             isLoaded = true
         }
     }
@@ -153,7 +158,7 @@ actor SessionManager {
             let data = try encoder.encode(sessions)
             try data.write(to: fileURL, options: .atomic)
         } catch {
-            logger.error("Failed to save sessions: \(error.localizedDescription)")
+            ClarissaLogger.persistence.error("Failed to save sessions: \(error.localizedDescription)")
         }
     }
 }

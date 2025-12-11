@@ -26,6 +26,8 @@ final class OpenRouterProvider: LLMProvider, @unchecked Sendable {
         AsyncThrowingStream { continuation in
             Task {
                 do {
+                    ClarissaLogger.provider.info("OpenRouter: Starting request to model \(self.model, privacy: .public)")
+
                     var request = URLRequest(url: baseURL)
                     request.httpMethod = "POST"
                     request.timeoutInterval = timeout
@@ -50,12 +52,14 @@ final class OpenRouterProvider: LLMProvider, @unchecked Sendable {
                         for try await line in bytes.lines {
                             errorBody += line
                         }
+                        ClarissaLogger.network.error("OpenRouter HTTP error \(httpResponse.statusCode): \(errorBody.prefix(200), privacy: .public)")
                         throw OpenRouterError.httpError(
                             statusCode: httpResponse.statusCode,
                             message: parseErrorMessage(from: errorBody) ?? "Request failed"
                         )
                     }
 
+                    ClarissaLogger.provider.debug("OpenRouter: Streaming response started")
                     var accumulatedContent = ""
                     // Track tool calls by index to properly accumulate streamed arguments
                     var toolCallsById: [Int: (id: String, name: String, arguments: String)] = [:]

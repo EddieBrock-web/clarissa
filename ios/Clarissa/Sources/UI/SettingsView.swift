@@ -83,6 +83,8 @@ struct SettingsView: View {
                             .environmentObject(appState)
                     } label: {
                         HStack {
+                            Image(systemName: "wrench.and.screwdriver")
+                                .foregroundStyle(ClarissaTheme.purple)
                             Text("Configure Tools")
                             Spacer()
                             Text("\(ToolSettings.shared.enabledCount) enabled")
@@ -90,7 +92,13 @@ struct SettingsView: View {
                         }
                     }
 
-                    Toggle("Auto-approve Tools", isOn: $autoApproveTools)
+                    Toggle(isOn: $autoApproveTools) {
+                        HStack {
+                            Image(systemName: "checkmark.seal")
+                                .foregroundStyle(ClarissaTheme.cyan)
+                            Text("Auto-approve Tools")
+                        }
+                    }
                 } header: {
                     Text("Tools")
                 } footer: {
@@ -102,6 +110,8 @@ struct SettingsView: View {
                         MemoryListView(memories: $memories)
                     } label: {
                         HStack {
+                            Image(systemName: "brain.head.profile")
+                                .foregroundStyle(ClarissaTheme.purple)
                             Text("Memories")
                             Spacer()
                             Text("\(memories.count)")
@@ -109,14 +119,34 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button("Clear All Memories", role: .destructive) {
+                    Button(role: .destructive) {
                         Task {
                             await MemoryManager.shared.clear()
                             memories = []
                         }
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash")
+                            Text("Clear All Memories")
+                        }
                     }
                 } header: {
                     Text("Long-term Memory")
+                }
+
+                Section {
+                    Button {
+                        appState.resetOnboarding()
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Image(systemName: "book.pages")
+                                .foregroundStyle(ClarissaTheme.purple)
+                            Text("View Tutorial")
+                        }
+                    }
+                } header: {
+                    Text("Help")
                 }
 
                 Section {
