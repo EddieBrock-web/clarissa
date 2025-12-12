@@ -18,11 +18,11 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
         locationManager.desiredAccuracy = kCLLocationAccuracyKilometer // Weather doesn't need high accuracy
     }
 
+    /// Timeout for location requests (30 seconds)
+    private nonisolated static let locationTimeoutSeconds: UInt64 = 30
+
     /// Request location with proper continuation handling
     /// Throws if a location request is already in progress
-    /// Timeout for location requests (30 seconds)
-    private static let locationTimeoutSeconds: UInt64 = 30
-
     func requestLocation() async throws -> CLLocation {
         // Guard against concurrent requests to prevent continuation crash
         guard !isRequestingLocation else {
@@ -30,26 +30,36 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
         }
         isRequestingLocation = true
 
-        // Use withThrowingTaskGroup to implement timeout
-        return try await withThrowingTaskGroup(of: CLLocation.self) { group in
-            group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    self.locationContinuation = continuation
-                    self.locationManager.requestLocation()
+        defer { isRequestingLocation = false }
+
+        // Create the location task on MainActor
+        let locationTask = Task { @MainActor in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CLLocation, Error>) in
+                self.locationContinuation = continuation
+                self.locationManager.requestLocation()
+            }
+        }
+
+        // Create a timeout task
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: Self.locationTimeoutSeconds * 1_000_000_000)
+            locationTask.cancel()
+            // Also cancel the continuation if it exists
+            await MainActor.run {
+                if let continuation = self.locationContinuation {
+                    self.locationContinuation = nil
+                    continuation.resume(throwing: ToolError.executionFailed("Location request timed out after \(Self.locationTimeoutSeconds) seconds"))
                 }
             }
+        }
 
-            group.addTask {
-                try await Task.sleep(nanoseconds: Self.locationTimeoutSeconds * 1_000_000_000)
-                throw ToolError.executionFailed("Location request timed out after \(Self.locationTimeoutSeconds) seconds")
-            }
-
-            // Return the first successful result (location), or throw if timeout wins
-            guard let result = try await group.next() else {
-                throw ToolError.executionFailed("Location request failed unexpectedly")
-            }
-            group.cancelAll()
+        do {
+            let result = try await locationTask.value
+            timeoutTask.cancel()
             return result
+        } catch {
+            timeoutTask.cancel()
+            throw error
         }
     }
 

@@ -121,7 +121,7 @@ actor SessionManager {
             return nil
         }
         currentSessionId = id
-        save() // Persist the session switch immediately
+        await save() // Persist the session switch immediately
         return session
     }
 
