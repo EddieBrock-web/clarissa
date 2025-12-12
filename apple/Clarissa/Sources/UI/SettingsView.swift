@@ -17,6 +17,7 @@ public struct SettingsView: View {
     @State private var showingSaveConfirmation = false
     @State private var availableVoices: [AVSpeechSynthesisVoice] = []
     @State private var testSynthesizer: AVSpeechSynthesizer?
+    @State private var isTestingVoice = false
 
     // Namespace for glass morphing in settings
     @Namespace private var settingsNamespace
@@ -172,11 +173,17 @@ public struct SettingsView: View {
                             testVoice()
                         } label: {
                             HStack {
-                                Image(systemName: "play.circle")
-                                    .foregroundStyle(ClarissaTheme.purple)
-                                Text("Test Voice")
+                                if isTestingVoice {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "play.circle")
+                                        .foregroundStyle(ClarissaTheme.purple)
+                                }
+                                Text(isTestingVoice ? "Playing..." : "Test Voice")
                             }
                         }
+                        .disabled(isTestingVoice)
                     }
                 } header: {
                     Text("Voice")
@@ -345,6 +352,10 @@ public struct SettingsView: View {
     }
 
     private func testVoice() {
+        // Prevent multiple simultaneous tests
+        guard !isTestingVoice else { return }
+        isTestingVoice = true
+
         // Create and retain synthesizer to prevent deallocation during playback
         let synthesizer = AVSpeechSynthesizer()
         testSynthesizer = synthesizer
@@ -357,7 +368,20 @@ public struct SettingsView: View {
             utterance.voice = voice
         }
 
+        // Estimate duration based on text length and speech rate (rough approximation)
+        // Average speaking rate is about 150 words per minute
+        let wordCount = 7 // "Hello, I'm Clarissa, your AI assistant."
+        let baseSeconds = Double(wordCount) / 2.5 // ~2.5 words per second at normal rate
+        let adjustedSeconds = baseSeconds / max(0.1, speechRate * 2) // Adjust for rate
+        let estimatedDuration = max(2.0, min(8.0, adjustedSeconds)) // Clamp between 2-8 seconds
+
         synthesizer.speak(utterance)
+
+        // Reset the state after estimated playback duration
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(estimatedDuration * 1_000_000_000))
+            isTestingVoice = false
+        }
     }
 
     /// Save API key to Keychain (debounced)

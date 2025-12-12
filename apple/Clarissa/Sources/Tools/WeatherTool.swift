@@ -20,6 +20,9 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
 
     /// Request location with proper continuation handling
     /// Throws if a location request is already in progress
+    /// Timeout for location requests (30 seconds)
+    private static let locationTimeoutSeconds: UInt64 = 30
+
     func requestLocation() async throws -> CLLocation {
         // Guard against concurrent requests to prevent continuation crash
         guard !isRequestingLocation else {
@@ -27,9 +30,26 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
         }
         isRequestingLocation = true
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.locationContinuation = continuation
-            self.locationManager.requestLocation()
+        // Use withThrowingTaskGroup to implement timeout
+        return try await withThrowingTaskGroup(of: CLLocation.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.locationContinuation = continuation
+                    self.locationManager.requestLocation()
+                }
+            }
+
+            group.addTask {
+                try await Task.sleep(nanoseconds: Self.locationTimeoutSeconds * 1_000_000_000)
+                throw ToolError.executionFailed("Location request timed out after \(Self.locationTimeoutSeconds) seconds")
+            }
+
+            // Return the first successful result (location), or throw if timeout wins
+            guard let result = try await group.next() else {
+                throw ToolError.executionFailed("Location request failed unexpectedly")
+            }
+            group.cancelAll()
+            return result
         }
     }
 

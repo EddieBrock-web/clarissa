@@ -107,6 +107,8 @@ struct SidebarView: View {
     @Binding var selectedTab: ClarissaTab
     @State private var sessions: [Session] = []
     @State private var currentSessionId: UUID?
+    @State private var sessionToDelete: Session?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         List {
@@ -123,6 +125,17 @@ struct SidebarView: View {
         }
         .refreshable {
             await loadData()
+        }
+        .alert("Delete Conversation", isPresented: $showDeleteConfirmation, presenting: sessionToDelete) { session in
+            Button("Delete", role: .destructive) {
+                Task {
+                    await viewModel.deleteSession(id: session.id)
+                    sessions.removeAll { $0.id == session.id }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { session in
+            Text("Are you sure you want to delete this conversation? This action cannot be undone.")
         }
     }
 
@@ -195,13 +208,10 @@ struct SidebarView: View {
     }
 
     private func deleteSessions(at offsets: IndexSet) {
-        let sessionsToDelete = offsets.map { sessions[$0] }
-        for session in sessionsToDelete {
-            Task {
-                await viewModel.deleteSession(id: session.id)
-            }
-        }
-        sessions.remove(atOffsets: offsets)
+        // Only handle single deletion with confirmation
+        guard let firstIndex = offsets.first else { return }
+        sessionToDelete = sessions[firstIndex]
+        showDeleteConfirmation = true
     }
 }
 
@@ -386,6 +396,8 @@ struct HistoryTabContent: View {
     @ObservedObject var viewModel: ChatViewModel
     @State private var sessions: [Session] = []
     @State private var currentSessionId: UUID?
+    @State private var sessionToDelete: Session?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -423,6 +435,17 @@ struct HistoryTabContent: View {
         .task {
             await loadData()
         }
+        .alert("Delete Conversation", isPresented: $showDeleteConfirmation, presenting: sessionToDelete) { session in
+            Button("Delete", role: .destructive) {
+                Task {
+                    await viewModel.deleteSession(id: session.id)
+                    sessions.removeAll { $0.id == session.id }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { session in
+            Text("Are you sure you want to delete this conversation? This action cannot be undone.")
+        }
     }
 
     private func loadData() async {
@@ -431,13 +454,10 @@ struct HistoryTabContent: View {
     }
 
     private func deleteSessions(at offsets: IndexSet) {
-        for index in offsets {
-            let session = sessions[index]
-            Task {
-                await viewModel.deleteSession(id: session.id)
-            }
-        }
-        sessions.remove(atOffsets: offsets)
+        // Only handle single deletion with confirmation
+        guard let firstIndex = offsets.first else { return }
+        sessionToDelete = sessions[firstIndex]
+        showDeleteConfirmation = true
     }
 }
 

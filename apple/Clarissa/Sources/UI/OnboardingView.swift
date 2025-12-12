@@ -57,12 +57,21 @@ public struct OnboardingView: View {
             }
 
             #if os(macOS)
-            // Page indicator for macOS
+            // Page indicator for macOS - clickable dots
             HStack(spacing: 8) {
                 ForEach(0..<pages.count, id: \.self) { index in
-                    Circle()
-                        .fill(index == currentPage ? ClarissaTheme.purple : Color.secondary.opacity(0.3))
-                        .frame(width: 8, height: 8)
+                    Button {
+                        withAnimation(reduceMotion ? .none : .easeInOut) {
+                            currentPage = index
+                        }
+                    } label: {
+                        Circle()
+                            .fill(index == currentPage ? ClarissaTheme.purple : Color.secondary.opacity(0.3))
+                            .frame(width: 8, height: 8)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Page \(index + 1) of \(pages.count)")
+                    .accessibilityHint(index == currentPage ? "Current page" : "Double-tap to go to this page")
                 }
             }
             .padding(.bottom, 8)

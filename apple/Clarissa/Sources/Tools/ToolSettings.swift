@@ -63,35 +63,53 @@ final class ToolSettings: ObservableObject {
     }
     
     /// Toggle a tool's enabled state
-    func toggleTool(_ toolId: String) {
+    /// Returns false if the tool could not be enabled due to the limit being reached
+    @discardableResult
+    func toggleTool(_ toolId: String) -> Bool {
         if enabledToolNames.contains(toolId) {
             enabledToolNames.remove(toolId)
         } else {
+            // Check if we're at the limit before adding
+            guard enabledToolNames.count < maxToolsForFoundationModels else {
+                return false
+            }
             enabledToolNames.insert(toolId)
         }
-        
+
         // Update the allTools array
         if let index = allTools.firstIndex(where: { $0.id == toolId }) {
             allTools[index].isEnabled = enabledToolNames.contains(toolId)
         }
-        
+
         saveSettings()
+        return true
     }
-    
+
     /// Set a tool's enabled state directly
-    func setToolEnabled(_ toolId: String, enabled: Bool) {
+    /// Returns false if the tool could not be enabled due to the limit being reached
+    @discardableResult
+    func setToolEnabled(_ toolId: String, enabled: Bool) -> Bool {
         if enabled {
+            // Check if we're at the limit before adding
+            guard !enabledToolNames.contains(toolId) && enabledToolNames.count < maxToolsForFoundationModels else {
+                if enabledToolNames.contains(toolId) {
+                    // Already enabled, no change needed
+                    return true
+                }
+                return false
+            }
             enabledToolNames.insert(toolId)
         } else {
             enabledToolNames.remove(toolId)
         }
-        
+
         // Update the allTools array
         if let index = allTools.firstIndex(where: { $0.id == toolId }) {
             allTools[index].isEnabled = enabled
         }
-        
+
         saveSettings()
+        return true
     }
     
     /// Check if a tool is enabled

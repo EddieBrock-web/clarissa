@@ -158,6 +158,12 @@ private final class AudioEngineHandler: @unchecked Sendable {
     private let audioEngine = AVAudioEngine()
     private let queue = DispatchQueue(label: "com.clarissa.audioengine", qos: .userInitiated)
 
+    /// Lock to synchronize audio engine operations during configuration changes
+    private let engineLock = NSLock()
+
+    /// Flag to indicate if we're in the middle of a configuration change
+    private var isReconfiguring = false
+
     /// Callback to notify when audio engine needs restart (e.g., after system reconfiguration)
     var onConfigurationChange: (() -> Void)?
 
@@ -179,6 +185,14 @@ private final class AudioEngineHandler: @unchecked Sendable {
             // Configuration changed - engine needs to be reconfigured
             // This can happen when audio route changes or system reclaims resources
             self.queue.async {
+                // Acquire lock before modifying audio engine state
+                self.engineLock.lock()
+                defer { self.engineLock.unlock() }
+
+                // Mark that we're reconfiguring to prevent concurrent operations
+                self.isReconfiguring = true
+                defer { self.isReconfiguring = false }
+
                 if self.audioEngine.isRunning {
                     self.audioEngine.stop()
                 }
@@ -203,6 +217,16 @@ private final class AudioEngineHandler: @unchecked Sendable {
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self] in
+                // Acquire lock to synchronize with configuration changes
+                engineLock.lock()
+                defer { engineLock.unlock() }
+
+                // Check if we're in the middle of reconfiguration
+                guard !isReconfiguring else {
+                    continuation.resume(throwing: SpeechError.requestCreationFailed)
+                    return
+                }
+
                 do {
                     // Stop any existing session first
                     if audioEngine.isRunning {
@@ -253,6 +277,10 @@ private final class AudioEngineHandler: @unchecked Sendable {
         currentBufferHandler = nil
         await withCheckedContinuation { continuation in
             queue.async { [self] in
+                // Acquire lock to synchronize with configuration changes
+                engineLock.lock()
+                defer { engineLock.unlock() }
+
                 if audioEngine.isRunning {
                     audioEngine.stop()
                 }
@@ -273,6 +301,10 @@ private final class AudioEngineHandler: @unchecked Sendable {
     func stopSync(skipSessionDeactivation: Bool = false) {
         currentBufferHandler = nil
         queue.sync { [self] in
+            // Acquire lock to synchronize with configuration changes
+            engineLock.lock()
+            defer { engineLock.unlock() }
+
             if audioEngine.isRunning {
                 audioEngine.stop()
             }
