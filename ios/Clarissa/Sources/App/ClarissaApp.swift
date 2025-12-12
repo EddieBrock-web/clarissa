@@ -29,10 +29,53 @@ struct ClarissaApp: App {
         }
         #if os(macOS)
         .windowStyle(.automatic)
-        .windowResizability(.contentSize)
-        .defaultSize(width: 800, height: 600)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 900, height: 700)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            // File menu
+            CommandGroup(replacing: .newItem) {
+                Button("New Conversation") {
+                    NotificationCenter.default.post(name: .newConversation, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
+
+            // Edit menu additions
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Clear Conversation") {
+                    NotificationCenter.default.post(name: .clearConversation, object: nil)
+                }
+                .keyboardShortcut(.delete, modifiers: [.command, .shift])
+            }
+
+            // View menu
+            CommandGroup(after: .sidebar) {
+                Button("Toggle Sidebar") {
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("ToggleSidebar"),
+                        object: nil
+                    )
+                }
+                .keyboardShortcut("s", modifiers: [.command, .control])
+            }
+
+            // Help menu
+            CommandGroup(replacing: .help) {
+                Link("Clarissa Documentation", destination: URL(string: "https://github.com/cameronrye/clarissa")!)
+                Divider()
+                Button("About Clarissa") {
+                    NotificationCenter.default.post(name: .showAbout, object: nil)
+                }
+            }
+        }
+        #endif
+
+        #if os(macOS)
+        // Settings window for macOS
+        Settings {
+            SettingsView()
+                .environmentObject(appState)
         }
         #endif
     }

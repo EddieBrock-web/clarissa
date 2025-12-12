@@ -1,26 +1,73 @@
 import SwiftUI
 
-/// Main tab-based navigation for Clarissa with iOS 26 Liquid Glass tab bar
-/// Uses tabBarMinimizeBehavior for modern scrolling experience
+/// Main navigation for Clarissa
+/// - iPhone: Tab-based navigation with iOS 26 Liquid Glass tab bar
+/// - iPad/macOS: NavigationSplitView with sidebar for history
 public struct MainTabView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var chatViewModel = ChatViewModel()
     @State private var selectedTab: ClarissaTab = .chat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     public init() {}
 
     public var body: some View {
         if #available(iOS 26.0, macOS 26.0, *) {
-            modernTabView
+            adaptiveNavigation
         } else {
             ContentView()
         }
     }
 
     @available(iOS 26.0, macOS 26.0, *)
-    private var modernTabView: some View {
+    @ViewBuilder
+    private var adaptiveNavigation: some View {
+        #if os(macOS)
+        // macOS always uses split view
+        splitViewNavigation
+        #else
+        // iOS: Use split view on iPad, tabs on iPhone
+        if horizontalSizeClass == .regular {
+            splitViewNavigation
+        } else {
+            tabViewNavigation
+        }
+        #endif
+    }
+
+    @available(iOS 26.0, macOS 26.0, *)
+    private var splitViewNavigation: some View {
+        NavigationSplitView {
+            SidebarView(viewModel: chatViewModel, selectedTab: $selectedTab)
+        } detail: {
+            switch selectedTab {
+            case .chat:
+                ChatTabContent(viewModel: chatViewModel)
+            case .history:
+                // History is shown in sidebar, show chat as detail
+                ChatTabContent(viewModel: chatViewModel)
+            case .settings:
+                SettingsTabContent()
+            }
+        }
+        .tint(ClarissaTheme.purple)
+        #if os(macOS)
+        .frame(minWidth: 600, minHeight: 400)
+        #endif
+        .onAppear {
+            chatViewModel.configure(with: appState)
+        }
+        .onChange(of: appState.selectedProvider) { _, newValue in
+            Task {
+                await chatViewModel.switchProvider(to: newValue)
+            }
+        }
+    }
+
+    @available(iOS 26.0, macOS 26.0, *)
+    private var tabViewNavigation: some View {
         TabView(selection: $selectedTab) {
             Tab("Chat", systemImage: "bubble.left.and.bubble.right", value: .chat) {
                 ChatTabContent(viewModel: chatViewModel)
@@ -34,7 +81,9 @@ public struct MainTabView: View {
                 SettingsTabContent()
             }
         }
+        #if os(iOS)
         .tabBarMinimizeBehavior(.onScrollDown)
+        #endif
         .tint(ClarissaTheme.purple)
         .onChange(of: selectedTab) { _, _ in
             HapticManager.shared.selection()
@@ -47,6 +96,161 @@ public struct MainTabView: View {
                 await chatViewModel.switchProvider(to: newValue)
             }
         }
+    }
+}
+
+// MARK: - Sidebar View for iPad/macOS
+
+@available(iOS 26.0, macOS 26.0, *)
+struct SidebarView: View {
+    @ObservedObject var viewModel: ChatViewModel
+    @Binding var selectedTab: ClarissaTab
+    @State private var sessions: [Session] = []
+    @State private var currentSessionId: UUID?
+
+    var body: some View {
+        List {
+            chatSection
+            historySection
+            settingsSection
+        }
+        .navigationTitle("Clarissa")
+        #if os(macOS)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
+        #endif
+        .task {
+            await loadData()
+        }
+        .refreshable {
+            await loadData()
+        }
+    }
+
+    // MARK: - Sections
+
+    private var chatSection: some View {
+        Section {
+            Button {
+                HapticManager.shared.lightTap()
+                viewModel.requestNewSession()
+                selectedTab = .chat
+            } label: {
+                Label("New Chat", systemImage: "plus.circle")
+            }
+        }
+    }
+
+    private var historySection: some View {
+        Section("Recent Conversations") {
+            ForEach(Array(sessions.prefix(10))) { session in
+                sessionRow(for: session)
+            }
+            .onDelete(perform: deleteSessions)
+
+            viewAllLink
+        }
+    }
+
+    @ViewBuilder
+    private func sessionRow(for session: Session) -> some View {
+        SessionSidebarRow(
+            session: session,
+            isCurrentSession: session.id == currentSessionId
+        ) {
+            HapticManager.shared.lightTap()
+            Task {
+                await viewModel.switchToSession(id: session.id)
+                selectedTab = .chat
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var viewAllLink: some View {
+        if sessions.count > 10 {
+            NavigationLink {
+                HistoryTabContent(viewModel: viewModel)
+            } label: {
+                Label("View All (\(sessions.count))", systemImage: "clock.arrow.circlepath")
+            }
+        }
+    }
+
+    private var settingsSection: some View {
+        Section {
+            Button {
+                HapticManager.shared.lightTap()
+                selectedTab = .settings
+            } label: {
+                Label("Settings", systemImage: "gear")
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func loadData() async {
+        sessions = await viewModel.getAllSessions()
+        currentSessionId = await viewModel.getCurrentSessionId()
+    }
+
+    private func deleteSessions(at offsets: IndexSet) {
+        let sessionsToDelete = offsets.map { sessions[$0] }
+        for session in sessionsToDelete {
+            Task {
+                await viewModel.deleteSession(id: session.id)
+            }
+        }
+        sessions.remove(atOffsets: offsets)
+    }
+}
+
+// MARK: - Session Sidebar Row
+
+@available(iOS 26.0, macOS 26.0, *)
+struct SessionSidebarRow: View {
+    let session: Session
+    let isCurrentSession: Bool
+    let onTap: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.title ?? "Untitled")
+                        .font(.subheadline)
+                        .fontWeight(isCurrentSession ? .semibold : .regular)
+                        .lineLimit(1)
+
+                    Text(session.updatedAt, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isCurrentSession {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(ClarissaTheme.purple)
+                        .font(.caption)
+                }
+            }
+            #if os(macOS)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
+            )
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHovered = hovering
+                }
+            }
+            #endif
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -100,6 +304,14 @@ struct ChatTabContent: View {
                         .presentationDetents([.medium, .large])
                         .scrollContentBackground(.hidden)
                 }
+                #if os(macOS)
+                .onReceive(NotificationCenter.default.publisher(for: .newConversation)) { _ in
+                    viewModel.requestNewSession()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .clearConversation)) { _ in
+                    viewModel.startNewSession()
+                }
+                #endif
         }
         .alert("Start New Conversation?", isPresented: $viewModel.showNewSessionConfirmation) {
             Button("Cancel", role: .cancel) {

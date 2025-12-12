@@ -4,12 +4,16 @@ import FoundationModels
 #endif
 
 /// Provider using Apple's on-device Foundation Models with native tool calling
+/// Note: This class is @MainActor isolated to ensure thread-safe access to mutable state
+/// The @preconcurrency conformance allows the protocol methods to safely cross actor boundaries
 @available(iOS 26.0, macOS 26.0, *)
-final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
-    let name = "Apple Intelligence"
+@MainActor
+final class FoundationModelsProvider: @preconcurrency LLMProvider {
+    /// Provider name - nonisolated for Sendable protocol conformance
+    nonisolated let name = "Apple Intelligence"
 
-    /// Maximum tools per session (Guide recommends 3-5 max)
-    let maxTools = maxToolsForFoundationModels
+    /// Maximum tools per session (Guide recommends 3-5 max) - nonisolated for Sendable
+    nonisolated let maxTools = maxToolsForFoundationModels
 
     #if canImport(FoundationModels)
     private var session: LanguageModelSession?
@@ -23,7 +27,6 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
     /// Community insight: "Don't call respond(to:) on a session again before it returns - this causes a crash"
     private var isProcessing = false
 
-    @MainActor
     init(toolRegistry: ToolRegistry = .shared) {
         self.toolRegistry = toolRegistry
     }
@@ -72,11 +75,21 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
     #if canImport(FoundationModels)
     /// Create or reuse session with native tool support
     /// Tools are registered directly with LanguageModelSession for native tool calling
+    /// - Parameter systemPrompt: The system prompt/instructions for the session
+    /// - Parameter withTools: Whether to include tools from the registry (false for simple text generation)
     @MainActor
-    private func getOrCreateSession(systemPrompt: String?) -> LanguageModelSession {
+    private func getOrCreateSession(systemPrompt: String?, withTools: Bool = true) -> LanguageModelSession {
         let instructionsText = systemPrompt ?? "You are Clarissa, a helpful AI assistant."
 
-        // Reuse existing session if instructions haven't changed
+        // For tool-less sessions (e.g., prompt enhancement), always create fresh
+        // This prevents pollution from previous chat sessions and ensures clean context
+        if !withTools {
+            let instructions = Instructions(instructionsText)
+            // Create a simple session without tools for text generation tasks
+            return LanguageModelSession(instructions: instructions)
+        }
+
+        // Reuse existing session if instructions haven't changed (for main chat with tools)
         if let existingSession = session, currentInstructions == instructionsText {
             return existingSession
         }
@@ -100,12 +113,12 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
 
     /// Prewarm the session for faster first response
     @MainActor
-    func prewarm(with promptPrefix: String? = nil) async {
+    func prewarm(with promptPrefix: String? = nil) {
         let session = getOrCreateSession(systemPrompt: nil)
         if let prefix = promptPrefix {
-            await session.prewarm(promptPrefix: Prompt(prefix))
+            session.prewarm(promptPrefix: Prompt(prefix))
         } else {
-            await session.prewarm()
+            session.prewarm()
         }
     }
     #endif
@@ -150,8 +163,13 @@ final class FoundationModelsProvider: LLMProvider, @unchecked Sendable {
                     // Extract system prompt
                     let systemPrompt = messages.first { $0.role == .system }?.content
 
-                    // Get or create session with native tool support (reuses if unchanged)
-                    let session = getOrCreateSession(systemPrompt: systemPrompt)
+                    // Determine if this is a simple text generation request (no tools)
+                    // For such requests, create a fresh tool-less session to avoid polluting
+                    // the main chat session and to ensure clean context for tasks like prompt enhancement
+                    let useTools = !tools.isEmpty
+
+                    // Get or create session (tool-less sessions are always fresh)
+                    let session = getOrCreateSession(systemPrompt: systemPrompt, withTools: useTools)
 
                     // Build the user prompt from messages
                     let promptText = buildPrompt(from: messages)

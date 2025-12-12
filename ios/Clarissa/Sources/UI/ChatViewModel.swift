@@ -31,8 +31,12 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
     private var agent: Agent
     private var appState: AppState?
     private var currentTask: Task<Void, Never>?
+    #if os(iOS)
     private(set) var voiceManager: VoiceManager?
     private var voiceCancellables = Set<AnyCancellable>()
+    #elseif os(macOS)
+    private var menuCommandCancellables = Set<AnyCancellable>()
+    #endif
 
     init() {
         self.agent = Agent()
@@ -45,12 +49,48 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
             isSettingUpProvider = false
         }
 
-        // Initialize voice manager
+        // Initialize voice manager on iOS, menu commands on macOS
+        #if os(iOS)
         setupVoiceManager()
+        #elseif os(macOS)
+        setupMenuCommandObservers()
+        #endif
     }
+
+    // MARK: - macOS Menu Command Observers
+
+    #if os(macOS)
+    private func setupMenuCommandObservers() {
+        // New conversation command
+        NotificationCenter.default.publisher(for: .newConversation)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.requestNewSession()
+            }
+            .store(in: &menuCommandCancellables)
+
+        // Clear conversation command
+        NotificationCenter.default.publisher(for: .clearConversation)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.clearConversation()
+            }
+            .store(in: &menuCommandCancellables)
+    }
+
+    /// Clear the current conversation without starting a new session
+    private func clearConversation() {
+        messages.removeAll()
+        streamingContent = ""
+        contextStats = .empty
+        thinkingStatus = .idle
+        cancelGeneration()
+    }
+    #endif
 
     // MARK: - Voice Setup
 
+    #if os(iOS)
     private func setupVoiceManager() {
         let manager = VoiceManager()
         self.voiceManager = manager
@@ -103,6 +143,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
             }
             .store(in: &voiceCancellables)
     }
+    #endif
 
     /// Configure with AppState for provider switching
     func configure(with appState: AppState) {
@@ -434,6 +475,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         updateContextStats()
 
         // Speak response in voice mode
+        #if os(iOS)
         if isVoiceModeActive, let voiceManager = voiceManager {
             // Read voice output setting
             let voiceOutputEnabled = UserDefaults.standard.bool(forKey: "voiceOutputEnabled")
@@ -441,6 +483,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
                 voiceManager.speak(content)
             }
         }
+        #endif
     }
 
     func onError(error: Error) {
@@ -462,8 +505,8 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isEnhancing else { return }
 
-        // Get the current provider from the agent
-        guard let provider = getCurrentProvider() else {
+        // Get the current provider, checking availability
+        guard let provider = await getAvailableProvider() else {
             errorMessage = "No provider available for enhancement"
             return
         }
@@ -484,12 +527,14 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         isEnhancing = false
     }
 
-    /// Get the current LLM provider (creates one if needed)
-    private func getCurrentProvider() -> (any LLMProvider)? {
-        // Try Foundation Models first
+    /// Get an available LLM provider, checking availability asynchronously
+    private func getAvailableProvider() async -> (any LLMProvider)? {
+        // Try Foundation Models first, but check availability
         if #available(iOS 26.0, *) {
             let provider = FoundationModelsProvider()
-            return provider
+            if await provider.isAvailable {
+                return provider
+            }
         }
 
         // Fall back to OpenRouter
@@ -501,6 +546,7 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
 
     // MARK: - Voice Control Methods
 
+    #if os(iOS)
     /// Toggle voice input recording
     func toggleVoiceInput() async {
         guard let voiceManager = voiceManager else { return }
@@ -557,6 +603,40 @@ final class ChatViewModel: ObservableObject, AgentCallbacks {
         guard let voiceManager = voiceManager else { return false }
         return await voiceManager.requestAuthorization()
     }
+    #else
+    // MARK: - Voice Control Methods (macOS stubs)
+
+    /// Toggle voice input recording (no-op on macOS)
+    func toggleVoiceInput() async {}
+
+    /// Start voice input recording (no-op on macOS)
+    func startVoiceInput() async {}
+
+    /// Stop voice input and send message (no-op on macOS)
+    func stopVoiceInputAndSend() {}
+
+    /// Toggle voice mode (no-op on macOS)
+    func toggleVoiceMode() async {}
+
+    /// Stop any ongoing speech (no-op on macOS)
+    func stopSpeaking() {}
+
+    /// Speak arbitrary text (no-op on macOS)
+    func speak(text: String) {}
+
+    /// Speak the last assistant response (no-op on macOS)
+    func speakLastResponse() {}
+
+    /// Check if there's an assistant message that can be spoken
+    var canSpeakLastResponse: Bool {
+        messages.contains(where: { $0.role == .assistant })
+    }
+
+    /// Check if voice features are authorized (always false on macOS)
+    func requestVoiceAuthorization() async -> Bool {
+        return false
+    }
+    #endif
 }
 
 /// Status of a tool execution

@@ -4,12 +4,25 @@ import os.log
 
 private let logger = Logger(subsystem: "dev.rye.Clarissa", category: "KeychainManager")
 
+// MARK: - KeychainStorage Protocol
+
+/// Protocol for Keychain storage operations, enabling dependency injection and testing
+public protocol KeychainStorage: Sendable {
+    func set(_ value: String, forKey key: String) throws
+    func get(key: String) -> String?
+    func delete(key: String) throws
+    func exists(key: String) -> Bool
+    func clearAll() throws
+}
+
+// MARK: - KeychainManager
+
 /// Manages secure storage of sensitive data in the iOS Keychain
-final class KeychainManager: @unchecked Sendable {
+final class KeychainManager: KeychainStorage, @unchecked Sendable {
     static let shared = KeychainManager()
-    
+
     private let service = "dev.rye.Clarissa"
-    
+
     private init() {}
     
     // MARK: - Public API

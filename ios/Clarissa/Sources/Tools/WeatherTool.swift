@@ -10,6 +10,7 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
     private var locationContinuation: CheckedContinuation<CLLocation, Error>?
     private var authorizationContinuation: CheckedContinuation<CLAuthorizationStatus, Never>?
     private var isWaitingForAuthorization = false
+    private var isRequestingLocation = false
 
     override init() {
         super.init()
@@ -18,7 +19,14 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
     }
 
     /// Request location with proper continuation handling
+    /// Throws if a location request is already in progress
     func requestLocation() async throws -> CLLocation {
+        // Guard against concurrent requests to prevent continuation crash
+        guard !isRequestingLocation else {
+            throw ToolError.executionFailed("Location request already in progress")
+        }
+        isRequestingLocation = true
+
         return try await withCheckedThrowingContinuation { continuation in
             self.locationContinuation = continuation
             self.locationManager.requestLocation()
@@ -26,11 +34,18 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
     }
 
     /// Request authorization and wait for user response
+    /// Returns current status immediately if authorization is already determined or a request is pending
     func requestAuthorizationAndWait() async -> CLAuthorizationStatus {
         let currentStatus = locationManager.authorizationStatus
 
         // If already determined, return immediately
         guard currentStatus == .notDetermined else {
+            return currentStatus
+        }
+
+        // Guard against concurrent authorization requests
+        guard !isWaitingForAuthorization else {
+            // Return current status if already waiting
             return currentStatus
         }
 
@@ -46,6 +61,7 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
+            self.isRequestingLocation = false
             self.locationContinuation?.resume(returning: location)
             self.locationContinuation = nil
         }
@@ -53,6 +69,7 @@ private final class WeatherLocationHelper: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
+            self.isRequestingLocation = false
             self.locationContinuation?.resume(throwing: error)
             self.locationContinuation = nil
         }

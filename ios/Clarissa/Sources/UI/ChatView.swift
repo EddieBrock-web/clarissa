@@ -125,8 +125,21 @@ struct ChatView: View {
             Text(viewModel.errorMessage ?? "")
         }
         #if os(macOS)
-        // Keyboard shortcuts for Mac
-        .keyboardShortcut(.return, modifiers: .command) // Cmd+Return to send
+        // Focus the input field on appearance and handle keyboard navigation
+        .onAppear {
+            // Auto-focus the input field on macOS
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isInputFocused = true
+            }
+        }
+        .onKeyPress(.escape) {
+            // Cancel generation with Escape key
+            if viewModel.isLoading {
+                viewModel.cancelGeneration()
+                return .handled
+            }
+            return .ignored
+        }
         #endif
     }
 
@@ -305,12 +318,13 @@ struct ChatView: View {
                 .symbolEffect(.pulse, isActive: viewModel.isEnhancing)
         }
         .glassEffect(
-            isDisabled
-                ? Glass.regular
-                : (reduceMotion ? Glass.regular.tint(ClarissaTheme.enhanceTint) : Glass.regular.interactive().tint(ClarissaTheme.enhanceTint)),
+            reduceMotion
+                ? Glass.regular.tint(viewModel.isEnhancing ? ClarissaTheme.enhanceTint : nil)
+                : Glass.regular.interactive().tint(viewModel.isEnhancing ? ClarissaTheme.enhanceTint : nil),
             in: .circle
         )
         .glassEffectID("enhance", in: inputNamespace)
+        .animation(.bouncy, value: viewModel.isEnhancing)
         .disabled(isDisabled)
         .accessibilityLabel("Enhance prompt")
         .accessibilityHint(isDisabled ? "Processing..." : "Double-tap to improve your prompt")
@@ -329,9 +343,9 @@ struct ChatView: View {
                 .frame(width: 44, height: 44)
         }
         .glassEffect(
-            isDisabled
+            reduceMotion
                 ? Glass.regular
-                : (reduceMotion ? Glass.regular.tint(ClarissaTheme.primaryActionTint) : Glass.regular.interactive().tint(ClarissaTheme.primaryActionTint)),
+                : Glass.regular.interactive(),
             in: .circle
         )
         .glassEffectID("send", in: inputNamespace)
@@ -349,11 +363,12 @@ struct MessageBubble: View {
     var isSpeaking: Bool = false
 
     @State private var showCopied = false
+    @State private var isHovered = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Max width for message bubbles on larger screens (iPad/Mac)
     private var maxBubbleWidth: CGFloat? {
-        horizontalSizeClass == .regular ? 600 : nil
+        horizontalSizeClass == .regular ? ClarissaConstants.maxMessageBubbleWidth : nil
     }
 
     var body: some View {
@@ -374,6 +389,15 @@ struct MessageBubble: View {
                         .foregroundStyle(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 18))
                         .frame(maxWidth: maxBubbleWidth, alignment: .trailing)
+                        #if os(macOS)
+                        .scaleEffect(isHovered ? 1.01 : 1.0)
+                        .shadow(color: isHovered ? .black.opacity(0.1) : .clear, radius: 4, y: 2)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isHovered = hovering
+                            }
+                        }
+                        #endif
                         .contextMenu {
                             copyButton
                         }
@@ -386,6 +410,15 @@ struct MessageBubble: View {
                         .foregroundStyle(.primary)
                         .clipShape(RoundedRectangle(cornerRadius: 18))
                         .frame(maxWidth: maxBubbleWidth, alignment: .leading)
+                        #if os(macOS)
+                        .scaleEffect(isHovered ? 1.01 : 1.0)
+                        .shadow(color: isHovered ? .black.opacity(0.1) : .clear, radius: 4, y: 2)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isHovered = hovering
+                            }
+                        }
+                        #endif
                         .contextMenu {
                             copyButton
                             speakButton
@@ -502,7 +535,7 @@ struct StreamingMessageBubble: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var maxBubbleWidth: CGFloat? {
-        horizontalSizeClass == .regular ? 600 : nil
+        horizontalSizeClass == .regular ? ClarissaConstants.maxMessageBubbleWidth : nil
     }
 
     var body: some View {
@@ -543,7 +576,7 @@ struct TypingBubble: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var maxBubbleWidth: CGFloat? {
-        horizontalSizeClass == .regular ? 600 : nil
+        horizontalSizeClass == .regular ? ClarissaConstants.maxMessageBubbleWidth : nil
     }
 
     var body: some View {
@@ -595,6 +628,7 @@ private struct TypingDotsView: View {
     let reduceMotion: Bool
 
     @State private var phase: Int = 0
+    @State private var animationTimer: Timer?
 
     private let dotSize: CGFloat = 8
     private let dotSpacing: CGFloat = 4
@@ -613,6 +647,11 @@ private struct TypingDotsView: View {
             guard !reduceMotion else { return }
             startAnimation()
         }
+        .onDisappear {
+            // Invalidate timer to prevent memory leak
+            animationTimer?.invalidate()
+            animationTimer = nil
+        }
     }
 
     private func scaleFor(_ index: Int) -> CGFloat {
@@ -626,10 +665,9 @@ private struct TypingDotsView: View {
     }
 
     private func startAnimation() {
-        withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: false)) {
-            // Use a timer-based approach with proper animation
-            Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { timer in
-                // Check if view is still visible
+        // Store timer reference so it can be invalidated on disappear
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { _ in
+            Task { @MainActor in
                 withAnimation(.easeInOut(duration: 0.2)) {
                     phase = (phase + 1) % 3
                 }
@@ -731,7 +769,7 @@ struct EmptyStateView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(reduceTransparency ? Color(uiColor: .secondarySystemBackground) : ClarissaTheme.assistantBubble)
+                .background(reduceTransparency ? Color(ClarissaTheme.secondarySystemBackground) : ClarissaTheme.assistantBubble)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.plain)
@@ -1052,7 +1090,7 @@ struct VoiceModeIndicator: View {
         .background {
             if reduceTransparency {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(uiColor: .secondarySystemBackground))
+                    .fill(Color(ClarissaTheme.secondarySystemBackground))
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(.ultraThinMaterial)

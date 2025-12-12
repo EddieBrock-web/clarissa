@@ -11,6 +11,9 @@ actor MemoryManager {
     private var memories: [Memory] = []
     private var isLoaded = false
 
+    /// Keychain storage (injectable for testing)
+    private let keychain: KeychainStorage
+
     /// Keychain key for storing memories
     private static let memoriesKeychainKey = "clarissa_memories"
 
@@ -21,6 +24,14 @@ actor MemoryManager {
     static let maxMemories = 100
 
     private init() {
+        self.keychain = KeychainManager.shared
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.legacyFileURL = documentsPath.appendingPathComponent("clarissa_memories.json")
+    }
+
+    /// Creates a MemoryManager with a custom keychain storage (for testing)
+    init(keychain: KeychainStorage) {
+        self.keychain = keychain
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.legacyFileURL = documentsPath.appendingPathComponent("clarissa_memories.json")
     }
@@ -127,7 +138,7 @@ actor MemoryManager {
 
     private func load() async {
         // First, try to load from Keychain (secure storage)
-        if let memoriesJson = KeychainManager.shared.get(key: Self.memoriesKeychainKey),
+        if let memoriesJson = keychain.get(key: Self.memoriesKeychainKey),
            let data = memoriesJson.data(using: .utf8) {
             do {
                 memories = try JSONDecoder().decode([Memory].self, from: data)
@@ -176,7 +187,7 @@ actor MemoryManager {
                 return
             }
 
-            try KeychainManager.shared.set(jsonString, forKey: Self.memoriesKeychainKey)
+            try keychain.set(jsonString, forKey: Self.memoriesKeychainKey)
             logger.debug("Saved \(self.memories.count) memories to Keychain")
         } catch {
             logger.error("Failed to save memories to Keychain: \(error.localizedDescription)")

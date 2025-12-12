@@ -52,3 +52,18 @@ enum ClarissaConstants {
     static let maxDisplayedSessionCount = 99
 }
 
+// MARK: - macOS Menu Command Notifications
+
+#if os(macOS)
+public extension Notification.Name {
+    /// Posted when user requests a new conversation via menu/shortcut
+    static let newConversation = Notification.Name("clarissa.newConversation")
+
+    /// Posted when user requests to clear the conversation via menu/shortcut
+    static let clearConversation = Notification.Name("clarissa.clearConversation")
+
+    /// Posted when user requests to show the about window
+    static let showAbout = Notification.Name("clarissa.showAbout")
+}
+#endif
+

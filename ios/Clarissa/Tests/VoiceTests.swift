@@ -11,18 +11,18 @@ import AVFoundation
 struct AudioSessionManagerTests {
 
     @Test("Shared instance is singleton")
-    func testSharedInstance() {
+    func testSharedInstance() async {
         let instance1 = AudioSessionManager.shared
         let instance2 = AudioSessionManager.shared
         #expect(instance1 === instance2)
     }
 
     @Test("Configure for voice mode sets correct category")
-    func testConfigureForVoiceMode() throws {
+    func testConfigureForVoiceMode() async throws {
         // Note: This test may fail on simulators without audio hardware
         // In production, we'd use dependency injection for AVAudioSession
         do {
-            try AudioSessionManager.shared.configureForVoiceMode()
+            try await AudioSessionManager.shared.configureForVoiceMode()
             let session = AVAudioSession.sharedInstance()
             #expect(session.category == .playAndRecord)
             #expect(session.mode == .voiceChat)
@@ -33,9 +33,9 @@ struct AudioSessionManagerTests {
     }
 
     @Test("Configure for recording sets correct category")
-    func testConfigureForRecording() throws {
+    func testConfigureForRecording() async throws {
         do {
-            try AudioSessionManager.shared.configureForRecording()
+            try await AudioSessionManager.shared.configureForRecording()
             let session = AVAudioSession.sharedInstance()
             #expect(session.category == .record)
             #expect(session.mode == .measurement)
@@ -45,9 +45,9 @@ struct AudioSessionManagerTests {
     }
 
     @Test("Configure for playback sets correct category")
-    func testConfigureForPlayback() throws {
+    func testConfigureForPlayback() async throws {
         do {
-            try AudioSessionManager.shared.configureForPlayback()
+            try await AudioSessionManager.shared.configureForPlayback()
             let session = AVAudioSession.sharedInstance()
             #expect(session.category == .playback)
             #expect(session.mode == .spokenAudio)
@@ -57,9 +57,9 @@ struct AudioSessionManagerTests {
     }
 
     @Test("Deactivate does not throw")
-    func testDeactivate() {
+    func testDeactivate() async {
         // Should not throw even if session wasn't active
-        AudioSessionManager.shared.deactivate()
+        await AudioSessionManager.shared.deactivate()
     }
 }
 #endif
@@ -202,14 +202,14 @@ struct VoiceManagerTests {
     }
 
     @Test("Exit voice mode resets external session flags")
-    func testExitVoiceModeResetsFlags() {
+    func testExitVoiceModeResetsFlags() async {
         let manager = VoiceManager()
 
         // Simulate entering voice mode state (without actual audio)
         manager.speechRecognizer.useExternalAudioSession = true
         manager.speechSynthesizer.useExternalAudioSession = true
 
-        manager.exitVoiceMode()
+        await manager.exitVoiceMode()
 
         #expect(manager.speechRecognizer.useExternalAudioSession == false)
         #expect(manager.speechSynthesizer.useExternalAudioSession == false)

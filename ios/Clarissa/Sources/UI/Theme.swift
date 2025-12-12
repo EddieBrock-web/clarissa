@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 /// Clarissa brand colors and theme
 enum ClarissaTheme {
@@ -18,6 +23,13 @@ enum ClarissaTheme {
 
     /// Secondary background: #12121a
     static let backgroundSecondary = Color(red: 0.071, green: 0.071, blue: 0.102)
+
+    /// Platform-agnostic secondary system background
+    #if os(iOS)
+    static let secondarySystemBackground = UIColor.secondarySystemBackground
+    #else
+    static let secondarySystemBackground = NSColor.windowBackgroundColor
+    #endif
 
     // MARK: - Gradient
 

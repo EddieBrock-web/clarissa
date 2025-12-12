@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 
 /// Handles text-to-speech using AVSpeechSynthesizer
+/// Works on both iOS and macOS platforms
 @MainActor
 final class SpeechSynthesizer: NSObject, ObservableObject {
     @Published var isSpeaking: Bool = false
@@ -18,6 +19,7 @@ final class SpeechSynthesizer: NSObject, ObservableObject {
 
     /// Whether audio session is managed externally (e.g., by VoiceManager in voice mode)
     /// When true, the synthesizer won't configure or deactivate the audio session
+    /// Note: Only applicable on iOS where AVAudioSession exists
     var useExternalAudioSession: Bool = false
 
     // MARK: - UserDefaults Keys (matching SettingsView)
@@ -31,7 +33,7 @@ final class SpeechSynthesizer: NSObject, ObservableObject {
         loadAvailableVoices()
     }
 
-    /// Load available high-quality Siri voices
+    /// Load available high-quality voices
     private func loadAvailableVoices() {
         // Only load Premium/Enhanced quality voices (high-quality Siri voices)
         // These must be downloaded in Settings > Accessibility > Spoken Content > Voices
@@ -93,7 +95,8 @@ final class SpeechSynthesizer: NSObject, ObservableObject {
         // Stop any current speech
         stop()
 
-        // Configure audio session for playback (skip if managed externally)
+        // Configure audio session for playback (iOS only, skip if managed externally)
+        #if os(iOS)
         if !useExternalAudioSession {
             do {
                 let audioSession = AVAudioSession.sharedInstance()
@@ -103,6 +106,7 @@ final class SpeechSynthesizer: NSObject, ObservableObject {
                 ClarissaLogger.ui.error("Failed to configure audio session: \(error.localizedDescription)")
             }
         }
+        #endif
 
         // Create utterance with settings from UserDefaults
         let utterance = AVSpeechUtterance(string: text)
@@ -171,10 +175,12 @@ extension SpeechSynthesizer: AVSpeechSynthesizerDelegate {
             self.isSpeaking = false
             self.currentUtterance = nil
 
-            // Deactivate audio session (skip if managed externally)
+            // Deactivate audio session (iOS only, skip if managed externally)
+            #if os(iOS)
             if !self.useExternalAudioSession {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
+            #endif
         }
     }
 
@@ -183,10 +189,12 @@ extension SpeechSynthesizer: AVSpeechSynthesizerDelegate {
             self.isSpeaking = false
             self.currentUtterance = nil
 
-            // Deactivate audio session (skip if managed externally)
+            // Deactivate audio session (iOS only, skip if managed externally)
+            #if os(iOS)
             if !self.useExternalAudioSession {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
+            #endif
         }
     }
 
@@ -202,4 +210,3 @@ extension SpeechSynthesizer: AVSpeechSynthesizerDelegate {
         }
     }
 }
-

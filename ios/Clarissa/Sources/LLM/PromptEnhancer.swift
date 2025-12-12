@@ -2,19 +2,26 @@ import Foundation
 
 /// System prompt for the prompt enhancement feature.
 /// Instructs the LLM to improve prompts while preserving intent.
+/// Uses direct, imperative instructions with examples for on-device models.
 private let enhancementSystemPrompt = """
-You are a prompt enhancement assistant. Your task is to improve user prompts to make them clearer, more specific, and more effective.
+You are a text enhancer. The user will give you a question or request. Your job is to rewrite it to be clearer and more effective.
 
-Guidelines for enhancement:
-1. Make the prompt more detailed and explicit
-2. Remove ambiguity and vague language
-3. Fix grammatical or spelling errors
-4. Add relevant context where it would help
-5. Preserve the original intent completely
-6. Keep the prompt concise - don't make it unnecessarily long
-7. Return ONLY the enhanced prompt, no explanations or preamble
+IMPORTANT: Output ONLY the improved version of the text. Nothing else.
 
-If the prompt is already clear and well-formed, return it with minimal changes.
+Example:
+User: "tell me about cats"
+Output: "What are the key characteristics, behaviors, and care requirements for domestic cats as pets?"
+
+Example:
+User: "how do I cook rice"
+Output: "What is the best method for cooking fluffy white rice on the stovetop, including the ideal water-to-rice ratio and cooking time?"
+
+Rules:
+- Add specific details and context
+- Fix grammar and spelling
+- Make it more precise
+- Keep the original intent
+- Output ONLY the enhanced text, no explanations
 """
 
 /// Actor responsible for enhancing user prompts using an LLM provider.
@@ -40,9 +47,11 @@ actor PromptEnhancer {
 
         ClarissaLogger.agent.info("Enhancing prompt: \(trimmedPrompt.prefix(50), privacy: .public)...")
 
+        // Send the raw prompt text - the system instructions handle the task
+        // Avoid prefixes like "Enhance this:" which confuse smaller on-device models
         let messages: [Message] = [
             .system(enhancementSystemPrompt),
-            .user("Enhance this prompt:\n\n\(trimmedPrompt)")
+            .user(trimmedPrompt)
         ]
 
         // Use the provider without tools for simple text generation
@@ -59,7 +68,7 @@ actor PromptEnhancer {
         return enhanced.isEmpty ? prompt : enhanced
     }
 
-    /// Clean up LLM output by removing function call syntax and executable tags
+    /// Clean up LLM output by removing function call syntax, executable tags, and common preambles
     private func cleanLLMOutput(_ text: String) -> String {
         var result = text
 
@@ -94,6 +103,34 @@ actor PromptEnhancer {
         // Remove leading/trailing backticks if the result is wrapped in code blocks
         if result.hasPrefix("```") && result.hasSuffix("```") {
             result = String(result.dropFirst(3).dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Remove common LLM preamble phrases that shouldn't appear in enhanced prompts
+        let preamblePatterns = [
+            "^Here is the (?:enhanced|improved|rewritten) (?:prompt|text|version)[:\\s]*",
+            "^Here's the (?:enhanced|improved|rewritten) (?:prompt|text|version)[:\\s]*",
+            "^Enhanced (?:prompt|version|text)[:\\s]*",
+            "^Improved (?:prompt|version|text)[:\\s]*",
+            "^Rewritten[:\\s]*",
+            "^Sure[,!]?\\s*",
+            "^Certainly[,!]?\\s*",
+            "^Of course[,!]?\\s*",
+            // Catch meta-instructions about enhancement (model outputting instructions instead of doing it)
+            "^Enhance the prompt[^.]*\\.\\s*",
+            "^To enhance this[^.]*\\.\\s*",
+            "^Output[:\\s]*"
+        ]
+        for pattern in preamblePatterns {
+            if let range = result.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                result.removeSubrange(range)
+                result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        // Remove quotes if the entire result is wrapped in them
+        if (result.hasPrefix("\"") && result.hasSuffix("\"")) ||
+           (result.hasPrefix("'") && result.hasSuffix("'")) {
+            result = String(result.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         return result

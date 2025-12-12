@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
 
-struct SettingsView: View {
+public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var appState: AppState
@@ -21,7 +21,11 @@ struct SettingsView: View {
     // Namespace for glass morphing in settings
     @Namespace private var settingsNamespace
 
-    var onProviderChange: (() -> Void)?
+    public var onProviderChange: (() -> Void)?
+
+    public init(onProviderChange: (() -> Void)? = nil) {
+        self.onProviderChange = onProviderChange
+    }
 
     private let availableModels = [
         "anthropic/claude-sonnet-4",
@@ -32,7 +36,7 @@ struct SettingsView: View {
         "meta-llama/llama-3.3-70b-instruct"
     ]
 
-    var body: some View {
+    public var body: some View {
         NavigationStack {
             Form {
                 Section {
@@ -187,6 +191,49 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                #if os(macOS)
+                Section {
+                    HStack {
+                        Image(systemName: "keyboard")
+                            .foregroundStyle(ClarissaTheme.cyan)
+                        Text("Keyboard Shortcuts")
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("New Conversation")
+                            Spacer()
+                            Text("⌘N")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        HStack {
+                            Text("Clear Conversation")
+                            Spacer()
+                            Text("⇧⌘⌫")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        HStack {
+                            Text("Cancel Generation")
+                            Spacer()
+                            Text("Esc")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        HStack {
+                            Text("Settings")
+                            Spacer()
+                            Text("⌘,")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                    }
+                    .font(.subheadline)
+                } header: {
+                    Text("macOS")
+                }
+                #endif
 
                 Section {
                     Button {

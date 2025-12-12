@@ -343,7 +343,9 @@ private struct ThinkingDotsView: View {
 
     private func startAnimation() {
         Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
-            animationPhase = (animationPhase + 1) % 3
+            Task { @MainActor in
+                animationPhase = (animationPhase + 1) % 3
+            }
         }
     }
 }
