@@ -46,11 +46,46 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
-// Type for streaming chunk from OpenRouter SDK
+/**
+ * Convert error to user-friendly message (iOS pattern)
+ */
+function getUserFriendlyError(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error(String(error));
+  }
+
+  const message = error.message;
+
+  // Check for HTTP status codes in error message
+  if (message.includes("401") || message.toLowerCase().includes("unauthorized")) {
+    return new Error("Invalid API key. Please check your OpenRouter API key.");
+  }
+  if (message.includes("402") || message.toLowerCase().includes("payment required")) {
+    return new Error("Insufficient credits. Please add credits to your OpenRouter account.");
+  }
+  if (message.includes("429") || message.toLowerCase().includes("rate limit")) {
+    return new Error("Rate limit exceeded. Please wait a moment and try again.");
+  }
+  if (message.includes("500") || message.includes("502") || message.includes("503") || message.includes("504")) {
+    return new Error("OpenRouter server error. Please try again later.");
+  }
+  if (message.toLowerCase().includes("network") || message.toLowerCase().includes("connection")) {
+    return new Error("Network error. Please check your internet connection.");
+  }
+
+  return error;
+}
+
+/**
+ * Type for streaming chunk from OpenRouter SDK.
+ * The SDK's AsyncIterable yields chunks with this structure.
+ * We define this explicitly rather than relying on SDK types to handle
+ * potential version mismatches gracefully.
+ */
 interface SDKStreamChunk {
-  id: string;
-  choices: Array<{
-    delta: {
+  id?: string;
+  choices?: Array<{
+    delta?: {
       role?: string;
       content?: string | null;
       toolCalls?: Array<{
@@ -59,9 +94,25 @@ interface SDKStreamChunk {
         function?: { name?: string; arguments?: string };
       }>;
     };
-    finishReason: string | null;
-    index: number;
+    finishReason?: string | null;
+    index?: number;
   }>;
+}
+
+/**
+ * Type guard to safely extract stream chunk data.
+ * Returns the chunk if it matches expected structure, undefined otherwise.
+ */
+function parseStreamChunk(rawChunk: unknown): SDKStreamChunk | undefined {
+  if (typeof rawChunk !== "object" || rawChunk === null) {
+    return undefined;
+  }
+  // The SDK returns objects with choices array - validate basic structure
+  const chunk = rawChunk as Record<string, unknown>;
+  if (!Array.isArray(chunk.choices)) {
+    return undefined;
+  }
+  return rawChunk as SDKStreamChunk;
 }
 
 function transformMessagesForSDK(
@@ -151,10 +202,11 @@ export class OpenRouterProvider implements LLMProvider {
           await sleep(getRetryDelay(attempt));
           continue;
         }
-        throw lastError;
+        // Convert to user-friendly error message (iOS pattern)
+        throw getUserFriendlyError(lastError);
       }
     }
-    throw lastError ?? new Error("Unexpected retry loop exit");
+    throw getUserFriendlyError(lastError ?? new Error("Unexpected retry loop exit"));
   }
 
   private async doStreamingChat(
@@ -175,7 +227,9 @@ export class OpenRouterProvider implements LLMProvider {
     const toolCallsMap = new Map<number, { id: string; type: "function"; function: { name: string; arguments: string } }>();
 
     for await (const rawChunk of stream) {
-      const chunk = rawChunk as unknown as SDKStreamChunk;
+      const chunk = parseStreamChunk(rawChunk);
+      if (!chunk) continue;
+
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
 
