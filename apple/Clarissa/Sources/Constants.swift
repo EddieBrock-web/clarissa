@@ -89,6 +89,15 @@ public extension Notification.Name {
 
     /// Posted when user requests to show the about window
     static let showAbout = Notification.Name("clarissa.showAbout")
+
+    /// Posted when user toggles voice input via menu/shortcut
+    static let toggleVoiceInput = Notification.Name("clarissa.toggleVoiceInput")
+
+    /// Posted when user requests to read the last response aloud
+    static let speakLastResponse = Notification.Name("clarissa.speakLastResponse")
+
+    /// Posted when user stops speech playback
+    static let stopSpeaking = Notification.Name("clarissa.stopSpeaking")
 }
 #endif
 

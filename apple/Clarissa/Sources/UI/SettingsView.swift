@@ -15,6 +15,7 @@ public struct SettingsView: View {
     @State private var memories: [Memory] = []
     @State private var showMemories = false
     @State private var showingSaveConfirmation = false
+    @State private var showingClearMemoriesConfirmation = false
     @State private var availableVoices: [AVSpeechSynthesisVoice] = []
     @State private var testSynthesizer: AVSpeechSynthesizer?
     @State private var isTestingVoice = false
@@ -126,15 +127,28 @@ public struct SettingsView: View {
                     }
 
                     Button(role: .destructive) {
-                        Task {
-                            await MemoryManager.shared.clear()
-                            memories = []
-                        }
+                        showingClearMemoriesConfirmation = true
                     } label: {
                         HStack {
                             Image(systemName: "trash")
                             Text("Clear All Memories")
                         }
+                    }
+                    .confirmationDialog(
+                        "Clear All Memories?",
+                        isPresented: $showingClearMemoriesConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Clear All", role: .destructive) {
+                            HapticManager.shared.warning()
+                            Task {
+                                await MemoryManager.shared.clear()
+                                memories = []
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This will permanently delete all saved memories. This action cannot be undone.")
                     }
                 } header: {
                     Text("Long-term Memory")
@@ -239,6 +253,30 @@ public struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .font(.system(.body, design: .monospaced))
                         }
+
+                        Divider()
+
+                        HStack {
+                            Text("Start Voice Input")
+                            Spacer()
+                            Text("⌘D")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        HStack {
+                            Text("Read Last Response")
+                            Spacer()
+                            Text("⇧⌘R")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                        HStack {
+                            Text("Stop Speaking")
+                            Spacer()
+                            Text("⌘.")
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
                     }
                     .font(.subheadline)
                 } header: {
@@ -269,7 +307,7 @@ public struct SettingsView: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("1.0.0")
+                        Text(appVersion)
                             .foregroundStyle(.secondary)
                     }
 
@@ -302,6 +340,25 @@ public struct SettingsView: View {
             openRouterApiKey = KeychainManager.shared.get(key: KeychainManager.Keys.openRouterApiKey) ?? ""
             // Load available voices
             loadAvailableVoices()
+        }
+    }
+
+    // MARK: - Version Helpers
+
+    /// Display the app's marketing version and build number from the bundle.
+    private var appVersion: String {
+        let bundle = Bundle.main
+        let version = bundle.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = bundle.infoDictionary?["CFBundleVersion"] as? String
+        switch (version, build) {
+        case let (v?, b?):
+            return "\(v) (\(b))"
+        case let (v?, nil):
+            return v
+        case let (nil, b?):
+            return b
+        default:
+            return "Unknown"
         }
     }
 
@@ -511,6 +568,9 @@ struct MemoryListView: View {
     }
 
     private func deleteMemories(at offsets: IndexSet) {
+        // Provide haptic feedback for deletion
+        HapticManager.shared.warning()
+
         for index in offsets {
             let memory = memories[index]
             Task {

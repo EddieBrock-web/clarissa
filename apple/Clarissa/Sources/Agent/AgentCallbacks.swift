@@ -10,7 +10,11 @@ protocol AgentCallbacks: AnyObject {
     func onToolCall(name: String, arguments: String)
 
     /// Called when a tool execution completes
-    func onToolResult(name: String, result: String)
+    /// - Parameters:
+    ///   - name: The tool name
+    ///   - result: The result string (may be error JSON if failed)
+    ///   - success: Whether the tool executed successfully
+    func onToolResult(name: String, result: String, success: Bool)
 
     /// Called when a response chunk is received (streaming)
     func onStreamChunk(chunk: String)
@@ -26,7 +30,7 @@ protocol AgentCallbacks: AnyObject {
 extension AgentCallbacks {
     func onThinking() {}
     func onToolCall(name: String, arguments: String) {}
-    func onToolResult(name: String, result: String) {}
+    func onToolResult(name: String, result: String, success: Bool) {}
     func onStreamChunk(chunk: String) {}
     func onResponse(content: String) {}
     func onError(error: Error) {}

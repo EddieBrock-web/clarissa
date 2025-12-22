@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import MapKit
 
 // MARK: - Typed Arguments
 
@@ -115,9 +116,12 @@ final class LocationTool: ClarissaTool, @unchecked Sendable {
     let priority = ToolPriority.extended
     let requiresConfirmation = true
 
-    private let helperHolder = LocationHelperHolder()
+	    // Lazily initialize the helper so that unit tests which only touch
+	    // static properties (and don't actually request location) don't
+	    // instantiate CLLocationManager in the SPM test environment.
+	    private lazy var helperHolder = LocationHelperHolder()
 
-    var parametersSchema: [String: Any] {
+	    var parametersSchema: [String: Any] {
         [
             "type": "object",
             "properties": [
@@ -132,9 +136,30 @@ final class LocationTool: ClarissaTool, @unchecked Sendable {
                 ]
             ]
         ]
-    }
-
-    func execute(arguments: String) async throws -> String {
+	    }
+	
+	    /// Execute the location tool.
+	    ///
+	    /// **Input (arguments JSON):**
+	    /// - `includeAddress: Bool?` (optional) – whether to include a reverse
+	    ///   geocoded address object in the response. Defaults to `true`.
+	    /// - `accuracy: String?` (optional) – one of `"best"`, `"high"`,
+	    ///   `"medium"`, or `"low"`. Defaults to `"medium"`.
+	    ///
+	    /// **Output (JSON string):**
+	    /// - `latitude: Double`
+	    /// - `longitude: Double`
+	    /// - `altitude: Double`
+	    /// - `horizontalAccuracy: Double`
+	    /// - `timestamp: String` (ISO‑8601)
+	    /// - `address: Object` (optional, present when `includeAddress` is true)
+	    ///   - `formatted: String` – primary human‑friendly address
+	    ///   - `fullAddress: String?` – full postal address
+	    ///   - `shortAddress: String?` – concise address (for display)
+	    ///   - `name: String?` – place or point‑of‑interest name
+	    /// - `addressError: String` (optional) – present if reverse geocoding
+	    ///   fails; core location fields are still returned.
+	    func execute(arguments: String) async throws -> String {
         guard let data = arguments.data(using: .utf8) else {
             throw ToolError.invalidArguments("Invalid argument encoding")
         }
@@ -187,18 +212,64 @@ final class LocationTool: ClarissaTool, @unchecked Sendable {
         return String(data: responseData, encoding: .utf8) ?? "{}"
     }
 
-    @available(iOS, deprecated: 26.0, message: "Use MapKit geocoding APIs")
-    @available(macOS, deprecated: 26.0, message: "Use MapKit geocoding APIs")
-    private func reverseGeocode(location: CLLocation) async throws -> [String: Any] {
-        let geocoder = CLGeocoder()
-        let placemarks = try await geocoder.reverseGeocodeLocation(location)
-        guard let placemark = placemarks.first else {
-            throw ToolError.executionFailed("No address found")
-        }
-        return formatPlacemark(placemark)
-    }
+	    /// Reverse geocode a CLLocation into a structured address dictionary.
+	    ///
+	    /// On iOS and macOS we use the modern MapKit geocoding APIs to avoid
+	    /// deprecated CoreLocation geocoding types. Other platforms fall back
+	    /// to `CLGeocoder` for now.
+	    private func reverseGeocode(location: CLLocation) async throws -> [String: Any] {
+	        #if os(macOS) || os(iOS)
+	        // Use MapKit's reverse geocoding APIs so we avoid deprecated
+	        // CoreLocation geocoding and get a richer MKAddress payload.
+	        guard let request = MKReverseGeocodingRequest(location: location) else {
+	            throw ToolError.executionFailed("No address found")
+	        }
+	        let items = try await request.mapItems
+	        guard let item = items.first else {
+	            throw ToolError.executionFailed("No address found")
+	        }
+	        return formatMapItem(item)
+	        #else
+	        // Fallback for any non-iOS/macOS platforms where MapKit reverse
+	        // geocoding may not be available yet.
+	        let geocoder = CLGeocoder()
+	        let placemarks = try await geocoder.reverseGeocodeLocation(location)
+	        guard let placemark = placemarks.first else {
+	            throw ToolError.executionFailed("No address found")
+	        }
+	        return formatPlacemark(placemark)
+	        #endif
+	    }
 
-    private func formatPlacemark(_ placemark: CLPlacemark) -> [String: Any] {
+	    /// Format a MapKit geocoding result into a JSON-friendly address
+	    /// dictionary using the new MKAddress APIs.
+	    private func formatMapItem(_ item: MKMapItem) -> [String: Any] {
+	        var address: [String: Any] = [:]
+
+	        if let name = item.name {
+	            address["name"] = name
+	        }
+
+	        if let mkAddress = item.address {
+	            address["fullAddress"] = mkAddress.fullAddress
+	            if let short = mkAddress.shortAddress {
+	                address["shortAddress"] = short
+	                address["formatted"] = short
+	            } else {
+	                address["formatted"] = mkAddress.fullAddress
+	            }
+	        }
+
+	        // Fallback: if we still don't have a formatted string, use the
+	        // map item's name as a last resort.
+	        if address["formatted"] == nil, let name = item.name {
+	            address["formatted"] = name
+	        }
+
+	        return address
+	    }
+
+	    private func formatPlacemark(_ placemark: CLPlacemark) -> [String: Any] {
         var address: [String: Any] = [:]
 
         if let name = placemark.name { address["name"] = name }

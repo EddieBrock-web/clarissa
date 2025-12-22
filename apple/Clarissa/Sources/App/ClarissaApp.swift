@@ -25,13 +25,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return config
         }
 
-        // Default to main app scene
-        let config = UISceneConfiguration(
+        // Default configuration - SwiftUI handles the main app scene via WindowGroup
+        return UISceneConfiguration(
             name: "Default Configuration",
             sessionRole: connectingSceneSession.role
         )
-        config.delegateClass = SceneDelegate.self
-        return config
     }
 }
 #endif
@@ -42,7 +40,10 @@ struct ClarissaApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     #endif
 
-    @StateObject private var appState = AppState()
+    // Use shared AppState so Intents, URL handling, and UI all share one source of truth
+    // Note: Using @ObservedObject since AppState.shared is already created elsewhere
+    // @StateObject would create ownership confusion with the shared singleton
+    @ObservedObject private var appState = AppState.shared
 
     var body: some Scene {
         WindowGroup {
@@ -99,6 +100,26 @@ struct ClarissaApp: App {
                     )
                 }
                 .keyboardShortcut("s", modifiers: [.command, .control])
+            }
+
+            // Voice menu
+            CommandMenu("Voice") {
+                Button("Start Voice Input") {
+                    NotificationCenter.default.post(name: .toggleVoiceInput, object: nil)
+                }
+                .keyboardShortcut("d", modifiers: .command)
+
+                Divider()
+
+                Button("Read Last Response") {
+                    NotificationCenter.default.post(name: .speakLastResponse, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Button("Stop Speaking") {
+                    NotificationCenter.default.post(name: .stopSpeaking, object: nil)
+                }
+                .keyboardShortcut(".", modifiers: .command)
             }
 
             // Help menu

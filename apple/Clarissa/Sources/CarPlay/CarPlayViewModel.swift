@@ -191,7 +191,7 @@ extension CarPlayViewModel: AgentCallbacks {
         // Could show tool activity indicator
     }
 
-    func onToolResult(name: String, result: String) {
+    func onToolResult(name: String, result: String, success: Bool) {
         // Tool completed
     }
 

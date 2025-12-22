@@ -1,6 +1,7 @@
 import Foundation
 import WeatherKit
 import CoreLocation
+import MapKit
 
 /// Helper for getting current location - must be used from MainActor
 @available(iOS 16.0, macOS 13.0, *)
@@ -139,9 +140,12 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
     let priority = ToolPriority.extended
     let requiresConfirmation = false
 
-    private let weatherService = WeatherService.shared
-    private let geocoder = CLGeocoder()
-    private let locationHelperHolder = WeatherLocationHelperHolder()
+		    // Lazily initialize heavy helpers so that unit tests which only
+		    // touch static properties (and don't execute the tool) don't
+		    // instantiate WeatherKit or CLLocationManager in the SPM test
+		    // environment.
+		    private lazy var weatherService = WeatherService.shared
+		    private lazy var locationHelperHolder = WeatherLocationHelperHolder()
 
     var parametersSchema: [String: Any] {
         [
@@ -167,7 +171,44 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
         ]
     }
 
-    func execute(arguments: String) async throws -> String {
+	    /// Execute the weather tool.
+	    ///
+	    /// **Input (arguments JSON):**
+	    /// - `location: String?` (optional) – human‑readable place name
+	    ///   (for example, "San Francisco, CA").
+	    /// - `latitude: Double?` / `longitude: Double?` (optional) – explicit
+	    ///   coordinates. If provided, these take precedence over `location`.
+	    /// - `forecast: Bool?` (optional) – include a 5‑day forecast when true.
+	    ///   Defaults to `false`.
+	    ///
+	    /// Resolution order for where to fetch weather:
+	    /// 1. If `latitude` and `longitude` are present, use those.
+	    /// 2. Else if `location` is a non‑empty string, forward‑geocode it.
+	    /// 3. Else, use the user's current location (via Core Location).
+	    ///
+	    /// **Output (JSON string):**
+	    /// - `location: Object` – the resolved location
+	    ///   - `latitude: Double`
+	    ///   - `longitude: Double`
+	    ///   - `name: String?` – best‑effort human‑friendly name
+	    /// - `current: Object` – current weather snapshot
+	    ///   - `temperature: { value: Double, unit: String }`
+	    ///   - `feelsLike: { value: Double, unit: String }`
+	    ///   - `condition: String`
+	    ///   - `humidity: Double` (percentage 0–100)
+	    ///   - `windSpeed: { value: Double, unit: String }`
+	    ///   - `windDirection: String`
+	    ///   - `uvIndex: Double`
+	    ///   - `visibility: { value: Double, unit: String }`
+	    /// - `forecast: [Object]` (optional) – present when `forecast` is true.
+	    ///   Each element represents a day:
+	    ///   - `date: String` (ISO‑8601)
+	    ///   - `condition: String`
+	    ///   - `highTemperature: { value: Double, unit: String }`
+	    ///   - `lowTemperature: { value: Double, unit: String }`
+	    ///   - `precipitationChance: Double` (percentage 0–100)
+	    ///   - `uvIndex: Double`
+	    func execute(arguments: String) async throws -> String {
         let args: [String: Any]
         if let data = arguments.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -180,25 +221,16 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
         var locationName: String? = nil
 
         // Get location from coordinates, location name, or current location
-        if let lat = args["latitude"] as? Double, let lon = args["longitude"] as? Double {
-            location = CLLocation(latitude: lat, longitude: lon)
-        } else if let name = args["location"] as? String, !name.isEmpty {
-            locationName = name
-            let placemarks = try await geocoder.geocodeAddressString(name)
-            guard let placemark = placemarks.first, let clLocation = placemark.location else {
-                throw ToolError.executionFailed("Could not find location: \(name)")
-            }
-            location = clLocation
-        } else {
-            // Use current location
-            location = try await getCurrentLocation()
-            // Reverse geocode to get location name
-            if let placemarks = try? await geocoder.reverseGeocodeLocation(location),
-               let placemark = placemarks.first {
-                locationName = [placemark.locality, placemark.administrativeArea]
-                    .compactMap { $0 }
-                    .joined(separator: ", ")
-            }
+	        if let lat = args["latitude"] as? Double, let lon = args["longitude"] as? Double {
+	            location = CLLocation(latitude: lat, longitude: lon)
+	        } else if let name = args["location"] as? String, !name.isEmpty {
+	            locationName = name
+	            location = try await geocodeLocationName(name)
+	        } else {
+	            // Use current location
+	            location = try await getCurrentLocation()
+	            // Reverse geocode to get location name (best-effort)
+	            locationName = await reverseGeocodeLocation(location)
         }
 
         let includeForecast = args["forecast"] as? Bool ?? false
@@ -214,7 +246,7 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
             locationDict["name"] = name
         }
 
-        var response: [String: Any] = [
+	        var response: [String: Any] = [
             "current": formatCurrentWeather(weather.currentWeather),
             "location": locationDict
         ]
@@ -226,6 +258,65 @@ final class WeatherTool: ClarissaTool, @unchecked Sendable {
         let responseData = try JSONSerialization.data(withJSONObject: response)
         return String(data: responseData, encoding: .utf8) ?? "{}"
     }
+
+	    // MARK: - Geocoding Helpers
+
+	    /// Forward geocode a human-readable location name into a CLLocation.
+	    private func geocodeLocationName(_ name: String) async throws -> CLLocation {
+	        #if os(macOS)
+	        // On macOS, use the new MapKit geocoding APIs to avoid deprecated CLGeocoder.
+	        if #available(macOS 15.0, *) {
+	            guard let request = MKGeocodingRequest(addressString: name) else {
+	                throw ToolError.executionFailed("Could not find location: \(name)")
+	            }
+	            let items = try await request.mapItems
+	            guard let item = items.first else {
+	                throw ToolError.executionFailed("Could not find location: \(name)")
+	            }
+	            return item.location
+	        } else {
+	            // Older macOS versions: MapKit geocoding may not be available.
+	            throw ToolError.notAvailable("Location search is not available on this version of macOS. Please specify coordinates instead.")
+	        }
+	        #else
+	        // On iOS, CLGeocoder is still supported and widely available.
+	        let geocoder = CLGeocoder()
+	        let placemarks = try await geocoder.geocodeAddressString(name)
+	        guard let placemark = placemarks.first, let location = placemark.location else {
+	            throw ToolError.executionFailed("Could not find location: \(name)")
+	        }
+	        return location
+	        #endif
+	    }
+
+	    /// Best-effort reverse geocoding to get a friendly location name from coordinates.
+	    private func reverseGeocodeLocation(_ location: CLLocation) async -> String? {
+	        #if os(macOS)
+	        if #available(macOS 15.0, *) {
+	            guard let request = MKReverseGeocodingRequest(location: location) else {
+	                return nil
+	            }
+	            do {
+	                let items = try await request.mapItems
+	                // Prefer the map item's name; address formatting can be added later if desired.
+	                return items.first?.name
+	            } catch {
+	                return nil
+	            }
+	        } else {
+	            return nil
+	        }
+	        #else
+	        let geocoder = CLGeocoder()
+	        if let placemarks = try? await geocoder.reverseGeocodeLocation(location),
+	           let placemark = placemarks.first {
+	            return [placemark.locality, placemark.administrativeArea]
+	                .compactMap { $0 }
+	                .joined(separator: ", ")
+	        }
+	        return nil
+	        #endif
+	    }
 
     /// Get the user's current location
     private func getCurrentLocation() async throws -> CLLocation {

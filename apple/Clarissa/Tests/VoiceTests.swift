@@ -64,8 +64,7 @@ struct AudioSessionManagerTests {
 }
 #endif
 
-#if os(iOS)
-// MARK: - SpeechRecognizer Tests
+// MARK: - SpeechRecognizer Tests (Cross-platform)
 
 @Suite("SpeechRecognizer Tests")
 @MainActor
@@ -106,10 +105,8 @@ struct SpeechRecognizerTests {
         #expect(recognizer.isRecording == false)
     }
 }
-#endif
 
-#if os(iOS)
-// MARK: - SpeechSynthesizer Tests
+// MARK: - SpeechSynthesizer Tests (Cross-platform)
 
 @Suite("SpeechSynthesizer Tests")
 @MainActor
@@ -171,10 +168,8 @@ struct SpeechSynthesizerTests {
         synthesizer.resume()
     }
 }
-#endif
 
-#if os(iOS)
-// MARK: - VoiceManager Tests
+// MARK: - VoiceManager Tests (Cross-platform)
 
 @Suite("VoiceManager Tests")
 @MainActor
@@ -193,9 +188,9 @@ struct VoiceManagerTests {
     }
 
     @Test("Cleanup resets state")
-    func testCleanup() {
+    func testCleanup() async {
         let manager = VoiceManager()
-        manager.cleanup()
+        await manager.cleanup()
         #expect(manager.isVoiceModeActive == false)
         #expect(manager.isListening == false)
         #expect(manager.isSpeaking == false)
@@ -341,38 +336,58 @@ struct VoiceIntegrationTests {
     }
 }
 
-// MARK: - Audio Session Configuration Tests
+// MARK: - Audio Session Configuration Tests (Cross-platform)
 
 @Suite("Audio Session Configuration Tests")
 struct AudioSessionConfigurationTests {
 
-    @Test("Voice mode options include speaker and bluetooth")
-    func testVoiceModeOptions() {
-        // This is a conceptual test - we verify the configuration values
-        // The actual options are set in configureForVoiceMode()
-
-        // Options should include:
-        // - defaultToSpeaker: for hands-free use
-        // - allowBluetooth: for headset support
-        // - duckOthers: to lower other app audio
-
-        // We can't directly inspect the options after configuration,
-        // but we verify the method doesn't throw
+    @Test("Voice mode configuration does not throw")
+    func testVoiceModeConfiguration() async {
+        // On iOS: Configures AVAudioSession with playAndRecord category
+        // On macOS: No-op (system manages audio)
+        // Either way, should not throw
         do {
-            try AudioSessionManager.shared.configureForVoiceMode()
+            try await AudioSessionManager.shared.configureForVoiceMode()
         } catch {
-            // Expected on simulator
-            Issue.record("Configuration failed (expected on simulator)")
+            #if os(iOS)
+            // May fail on iOS simulator without audio hardware
+            Issue.record("Configuration failed (expected on simulator): \(error)")
+            #else
+            // Should never fail on macOS (no-op)
+            Issue.record("Unexpected failure on macOS: \(error)")
+            #endif
         }
     }
 
-    @Test("Recording options include bluetooth")
-    func testRecordingOptions() {
+    @Test("Recording configuration does not throw")
+    func testRecordingConfiguration() async {
         do {
-            try AudioSessionManager.shared.configureForRecording()
+            try await AudioSessionManager.shared.configureForRecording()
         } catch {
-            Issue.record("Configuration failed (expected on simulator)")
+            #if os(iOS)
+            Issue.record("Configuration failed (expected on simulator): \(error)")
+            #else
+            Issue.record("Unexpected failure on macOS: \(error)")
+            #endif
         }
+    }
+
+    @Test("Playback configuration does not throw")
+    func testPlaybackConfiguration() async {
+        do {
+            try await AudioSessionManager.shared.configureForPlayback()
+        } catch {
+            #if os(iOS)
+            Issue.record("Configuration failed (expected on simulator): \(error)")
+            #else
+            Issue.record("Unexpected failure on macOS: \(error)")
+            #endif
+        }
+    }
+
+    @Test("Deactivate does not throw")
+    func testDeactivate() async {
+        // Should not throw even if session wasn't active
+        await AudioSessionManager.shared.deactivate()
     }
 }
-#endif

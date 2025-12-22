@@ -47,11 +47,26 @@ final class OpenRouterProvider: LLMProvider, @unchecked Sendable {
 
                     // Handle HTTP errors with detailed messages
                     guard httpResponse.statusCode == 200 else {
-                        // Try to read error body
-                        var errorBody = ""
-                        for try await line in bytes.lines {
-                            errorBody += line
+                        // Try to read error body with timeout to avoid hanging on malformed streams
+                        let errorReadTask = Task<String, Error> {
+                            var body = ""
+                            for try await line in bytes.lines {
+                                body += line
+                                // Limit error body size to prevent memory issues
+                                if body.count > 4096 { break }
+                            }
+                            return body
                         }
+
+                        // Wait up to 5 seconds for error body, then cancel
+                        let timeoutTask = Task {
+                            try await Task.sleep(for: .seconds(5))
+                            errorReadTask.cancel()
+                        }
+
+                        let errorBody = (try? await errorReadTask.value) ?? ""
+                        timeoutTask.cancel()
+
                         ClarissaLogger.network.error("OpenRouter HTTP error \(httpResponse.statusCode): \(errorBody.prefix(200), privacy: .public)")
                         throw OpenRouterError.httpError(
                             statusCode: httpResponse.statusCode,

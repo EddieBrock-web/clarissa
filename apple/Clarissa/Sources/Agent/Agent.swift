@@ -257,14 +257,14 @@ final class Agent: ObservableObject {
                         let result = try await toolRegistry.execute(name: toolCall.name, arguments: toolCall.arguments)
                         let toolMessage = Message.tool(callId: toolCall.id, name: toolCall.name, content: result)
                         messages.append(toolMessage)
-                        callbacks?.onToolResult(name: toolCall.name, result: result)
+                        callbacks?.onToolResult(name: toolCall.name, result: result, success: true)
                         ClarissaLogger.tools.info("Tool \(toolCall.name, privacy: .public) completed successfully")
                     } catch {
                         ClarissaLogger.tools.error("Tool \(toolCall.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                         let errorResult = Self.encodeErrorJSON(error.localizedDescription)
                         let toolMessage = Message.tool(callId: toolCall.id, name: toolCall.name, content: errorResult)
                         messages.append(toolMessage)
-                        callbacks?.onToolResult(name: toolCall.name, result: errorResult)
+                        callbacks?.onToolResult(name: toolCall.name, result: errorResult, success: false)
                     }
                 }
                 continue // Continue loop for next response

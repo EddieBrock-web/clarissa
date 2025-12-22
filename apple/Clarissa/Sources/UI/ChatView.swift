@@ -30,6 +30,18 @@ struct ChatView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+            } else if viewModel.isSwitchingSession {
+                // Loading state while switching sessions
+                Spacer()
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(ClarissaTheme.purple)
+                    Text("Loading conversation...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
             } else if viewModel.messages.isEmpty && viewModel.streamingContent.isEmpty && !viewModel.isLoading {
                 // Empty state with suggestions
                 EmptyStateView(onSuggestionTap: { suggestion in
@@ -84,7 +96,10 @@ struct ChatView: View {
                         }
                     }
                 }
-                .onChange(of: viewModel.streamingContent) { _, _ in
+                .onChange(of: viewModel.streamingContent) { _, newValue in
+                    // Only scroll when there's active streaming content to avoid
+                    // attempting to scroll to a view that no longer exists.
+                    guard !newValue.isEmpty else { return }
                     withAnimation {
                         proxy.scrollTo("streaming", anchor: .bottom)
                     }
@@ -181,11 +196,13 @@ struct ChatView: View {
                 // Enhance prompt button - only shown when there's text
                 if hasInputText {
                     enhanceButton
+                        .transition(.scale.combined(with: .opacity))
                 }
 
                 // Send button
                 sendButton
             }
+            .animation(.easeInOut(duration: 0.2), value: hasInputText)
             .padding()
         }
     }
@@ -255,6 +272,7 @@ struct ChatView: View {
                 .disabled(enhanceDisabled)
                 .accessibilityLabel("Enhance prompt")
                 .accessibilityHint(enhanceDisabled ? "Type a message first to enable prompt enhancement" : "Double-tap to improve your prompt")
+                .transition(.scale.combined(with: .opacity))
             }
 
             // Send button
@@ -276,6 +294,7 @@ struct ChatView: View {
             .accessibilityLabel("Send message")
             .accessibilityHint(sendDisabled ? "Type a message first, then double-tap to send" : "Double-tap to send your message to Clarissa")
         }
+        .animation(.easeInOut(duration: 0.2), value: hasInputText)
         .padding()
         .background(.bar)
     }
@@ -531,7 +550,7 @@ struct MessageBubble: View {
 /// Message bubble with pulsing cursor for streaming content
 struct StreamingMessageBubble: View {
     let content: String
-    @State private var cursorVisible = true
+    @State private var cursorVisible = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var maxBubbleWidth: CGFloat? {
@@ -548,7 +567,6 @@ struct StreamingMessageBubble: View {
                 Text("|")
                     .fontWeight(.light)
                     .opacity(cursorVisible ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: cursorVisible)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -560,7 +578,10 @@ struct StreamingMessageBubble: View {
             Spacer(minLength: 60)
         }
         .onAppear {
-            cursorVisible = false
+            // Start a repeating opacity animation for the cursor
+            withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                cursorVisible.toggle()
+            }
         }
     }
 }
@@ -757,17 +778,32 @@ struct ToolStatusView: View {
     let message: ChatMessage
     var onRetry: (() -> Void)? = nil
 
-    /// Color based on tool status: yellow for running, green for completed, red for failed
+    /// Color based on tool status with accessibility in mind
+    /// Uses distinct hues that work better for colorblind users
     private var statusColor: Color {
         switch message.toolStatus {
         case .running:
-            return .yellow
+            return ClarissaTheme.purple  // Purple for running (neutral, distinct)
         case .completed:
-            return .green
+            return ClarissaTheme.cyan    // Cyan/teal for success (distinct from red)
         case .failed:
-            return .red
+            return .red                  // Red for failure (universal warning)
         case .none:
             return ClarissaTheme.cyan
+        }
+    }
+
+    /// Icon based on tool status - uses distinct shapes for accessibility
+    private var statusIcon: String {
+        switch message.toolStatus {
+        case .running:
+            return "circle.dotted"       // Dotted circle for running
+        case .completed:
+            return "checkmark.circle.fill"  // Checkmark for success
+        case .failed:
+            return "exclamationmark.triangle.fill"  // Triangle for failure (distinct shape)
+        case .none:
+            return "circle.fill"
         }
     }
 
@@ -783,7 +819,7 @@ struct ToolStatusView: View {
                     .controlSize(.small)
                     .tint(statusColor)
             } else {
-                Image(systemName: message.toolStatus == .completed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                Image(systemName: statusIcon)
                     .foregroundStyle(statusColor)
             }
 
@@ -815,11 +851,20 @@ struct SessionHistoryView: View {
     let onDismiss: () -> Void
     @State private var sessions: [Session] = []
     @State private var currentSessionId: UUID?
+    @State private var isLoading: Bool = true
 
     var body: some View {
         NavigationStack {
             List {
-                if sessions.isEmpty {
+                if isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .tint(ClarissaTheme.purple)
+                        Spacer()
+                    }
+                    .listRowBackground(Color.clear)
+                } else if sessions.isEmpty {
                     ContentUnavailableView(
                         "No History",
                         systemImage: "clock.arrow.circlepath",
@@ -863,6 +908,7 @@ struct SessionHistoryView: View {
         .tint(ClarissaTheme.purple)
         .task {
             await loadData()
+            isLoading = false
         }
     }
 
@@ -888,13 +934,21 @@ struct SessionHistoryView: View {
     }
 
     private func deleteSessions(at offsets: IndexSet) {
-        for index in offsets {
-            let session = sessions[index]
-            Task {
+        // Provide haptic feedback for deletion
+        HapticManager.shared.warning()
+
+        // Collect sessions to delete first
+        let sessionsToDelete = offsets.map { sessions[$0] }
+
+        // Remove from local array immediately for responsive UI
+        sessions.remove(atOffsets: offsets)
+
+        // Delete from persistence in background
+        Task {
+            for session in sessionsToDelete {
                 await viewModel.deleteSession(id: session.id)
             }
         }
-        sessions.remove(atOffsets: offsets)
     }
 }
 
