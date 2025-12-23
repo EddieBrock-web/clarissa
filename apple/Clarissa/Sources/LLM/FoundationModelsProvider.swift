@@ -153,7 +153,9 @@ final class FoundationModelsProvider: @preconcurrency LLMProvider {
     }
     #endif
 
-    func streamComplete(
+    /// Stream completion - nonisolated to allow cross-actor calls from PromptEnhancer, etc.
+    /// All MainActor work happens inside the Task, so this is safe to call from any context.
+    nonisolated func streamComplete(
         messages: [Message],
         tools: [ToolDefinition]
     ) -> AsyncThrowingStream<StreamChunk, Error> {

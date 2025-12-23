@@ -11,8 +11,8 @@ struct ToolInfo: Identifiable, Sendable {
 
 /// Maximum number of tools that can be enabled for Apple Intelligence (on-device)
 /// Apple's guide recommends 3-5 max to avoid confusing the model
-/// Reduced to 4 for better reliability and to leave more context window for conversation
-let maxToolsForFoundationModels = 4
+/// Set to 5 to accommodate all commonly-used default tools (weather, calendar, contacts, reminders, calculator)
+let maxToolsForFoundationModels = 5
 
 /// Manages tool configuration and persistence
 @MainActor

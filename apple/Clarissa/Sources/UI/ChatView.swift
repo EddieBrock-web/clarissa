@@ -679,19 +679,85 @@ private struct TypingDotsView: View {
     }
 }
 
-/// Empty state view with logo and suggested prompts
+/// Empty state view with logo and suggested prompts based on enabled tools
 struct EmptyStateView: View {
     let onSuggestionTap: (String) -> Void
 
     @Namespace private var suggestionsNamespace
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ObservedObject private var toolSettings = ToolSettings.shared
 
-    private let suggestions = [
-        "What's the weather like today?",
-        "Set a reminder for tomorrow at 9am",
-        "What can you help me with?",
-        "Tell me a fun fact"
+    /// Example prompts for each tool, keyed by tool ID
+    private static let toolPrompts: [String: [String]] = [
+        "weather": [
+            "What's the weather like today?",
+            "Will it rain this weekend?",
+            "What's the forecast for tomorrow?"
+        ],
+        "calendar": [
+            "What's on my calendar today?",
+            "Schedule a meeting for tomorrow at 2pm",
+            "Do I have any events this week?"
+        ],
+        "reminders": [
+            "Remind me to call mom tomorrow",
+            "Set a reminder for 9am",
+            "What are my pending tasks?"
+        ],
+        "contacts": [
+            "What's John's phone number?",
+            "Find Sarah's email address",
+            "Look up my dentist's contact"
+        ],
+        "calculator": [
+            "What's 15% tip on $47.50?",
+            "Calculate 234 times 56",
+            "What's 20% of 85?"
+        ],
+        "location": [
+            "Where am I right now?",
+            "What's my current address?"
+        ],
+        "remember": [
+            "Remember that I prefer dark roast coffee",
+            "My favorite color is blue, remember that"
+        ],
+        "web_fetch": [
+            "Fetch the content from example.com"
+        ]
     ]
+
+    /// General prompts always available (no tool required)
+    private static let generalPrompts = [
+        "What can you help me with?",
+        "Tell me a joke",
+        "How does photosynthesis work?"
+    ]
+
+    /// Generate suggestions based on enabled tools
+    private var suggestions: [String] {
+        var prompts: [String] = []
+        let enabledTools = toolSettings.enabledToolNames
+
+        // Add one prompt from each enabled tool (randomized)
+        for toolId in enabledTools {
+            if let toolPromptList = Self.toolPrompts[toolId],
+               let prompt = toolPromptList.randomElement() {
+                prompts.append(prompt)
+            }
+        }
+
+        // Shuffle and limit to 4 suggestions
+        prompts.shuffle()
+        prompts = Array(prompts.prefix(3))
+
+        // Always add one general prompt
+        if let generalPrompt = Self.generalPrompts.randomElement() {
+            prompts.append(generalPrompt)
+        }
+
+        return prompts
+    }
 
     var body: some View {
         VStack(spacing: 24) {

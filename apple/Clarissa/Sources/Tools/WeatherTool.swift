@@ -148,7 +148,9 @@ private actor WeatherLocationHelperHolder {
 final class WeatherTool: ClarissaTool, @unchecked Sendable {
     let name = "weather"
     let description = "Get current weather and forecast. If no location is provided, uses the user's current location."
-    let priority = ToolPriority.extended
+    /// Weather is core priority since it's one of the most commonly requested features
+    /// and must be included in the limited tool slots for Foundation Models
+    let priority = ToolPriority.core
     let requiresConfirmation = false
 
 		    // Lazily initialize heavy helpers so that unit tests which only
