@@ -10,7 +10,18 @@
 		A0000001 /* ClarissaKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0000002 /* ClarissaKit */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		7EECC06D2EFB0BE8006BB322 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A000000B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A0000009;
+			remoteInfo = Clarissa;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		7EECC0672EFB0BE8006BB322 /* ClarissaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClarissaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A0000003 /* Clarissa.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Clarissa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -25,6 +36,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		7EECC0682EFB0BE8006BB322 /* ClarissaUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClarissaUITests;
+			sourceTree = "<group>";
+		};
 		A0000004 /* Sources/App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Sources/App;
@@ -41,6 +57,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		7EECC0642EFB0BE8006BB322 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A0000006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -57,6 +80,7 @@
 			children = (
 				A0000004 /* Sources/App */,
 				A0000005 /* Resources */,
+				7EECC0682EFB0BE8006BB322 /* ClarissaUITests */,
 				A0000008 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -65,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				A0000003 /* Clarissa.app */,
+				7EECC0672EFB0BE8006BB322 /* ClarissaUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -72,6 +97,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		7EECC0662EFB0BE8006BB322 /* ClarissaUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7EECC0712EFB0BE8006BB322 /* Build configuration list for PBXNativeTarget "ClarissaUITests" */;
+			buildPhases = (
+				7EECC0632EFB0BE8006BB322 /* Sources */,
+				7EECC0642EFB0BE8006BB322 /* Frameworks */,
+				7EECC0652EFB0BE8006BB322 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7EECC06E2EFB0BE8006BB322 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7EECC0682EFB0BE8006BB322 /* ClarissaUITests */,
+			);
+			name = ClarissaUITests;
+			packageProductDependencies = (
+			);
+			productName = ClarissaUITests;
+			productReference = 7EECC0672EFB0BE8006BB322 /* ClarissaUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		A0000009 /* Clarissa */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A000000A /* Build configuration list for PBXNativeTarget "Clarissa" */;
@@ -103,9 +151,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1620;
+				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					7EECC0662EFB0BE8006BB322 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = A0000009;
+					};
 					A0000009 = {
 						CreatedOnToolsVersion = 16.2;
 					};
@@ -129,11 +181,19 @@
 			projectRoot = "";
 			targets = (
 				A0000009 /* Clarissa */,
+				7EECC0662EFB0BE8006BB322 /* ClarissaUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		7EECC0652EFB0BE8006BB322 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A0000013 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -144,6 +204,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		7EECC0632EFB0BE8006BB322 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A0000012 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -153,7 +220,73 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		7EECC06E2EFB0BE8006BB322 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A0000009 /* Clarissa */;
+			targetProxy = 7EECC06D2EFB0BE8006BB322 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		7EECC06F2EFB0BE8006BB322 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SDRCMNG666;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rye.ClarissaUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Clarissa;
+			};
+			name = Debug;
+		};
+		7EECC0702EFB0BE8006BB322 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SDRCMNG666;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.rye.ClarissaUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Clarissa;
+			};
+			name = Release;
+		};
 		A000000D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -276,8 +409,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Clarissa.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = Resources/Clarissa-iOS.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Resources/Clarissa-macOS.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "Resources/Clarissa-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Resources/Clarissa-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -315,8 +448,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Clarissa.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = Resources/Clarissa-iOS.entitlements;
-				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = Resources/Clarissa-macOS.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "Resources/Clarissa-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Resources/Clarissa-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -352,6 +485,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		7EECC0712EFB0BE8006BB322 /* Build configuration list for PBXNativeTarget "ClarissaUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7EECC06F2EFB0BE8006BB322 /* Debug */,
+				7EECC0702EFB0BE8006BB322 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A000000A /* Build configuration list for PBXNativeTarget "Clarissa" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

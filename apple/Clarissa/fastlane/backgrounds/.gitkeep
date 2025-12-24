@@ -1,0 +1,11 @@
+# Background images for frameit
+# 
+# Place your background images here:
+# - background.png     - For iOS device frames (gradient or solid color)
+# - mac_background.png - For macOS screenshots (include Mac mockup if desired)
+#
+# Recommended size: 2732 x 2732 pixels minimum
+# 
+# You can generate simple gradient backgrounds using:
+# convert -size 2732x2732 gradient:#1a1a2e-#16213e background.png
+

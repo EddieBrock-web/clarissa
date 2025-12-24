@@ -1,0 +1,58 @@
+{
+  "device_frame_version": "latest",
+  "default": {
+    "title": {
+      "font_size": 86,
+      "color": "#FFFFFF"
+    },
+    "keyword": {
+      "font_size": 48,
+      "color": "#A0A0A0"
+    },
+    "background": "./backgrounds/background.png",
+    "padding": 50,
+    "show_complete_frame": false,
+    "title_below_image": false,
+    "stack_title": false,
+    "frame": "BLACK",
+    "use_platform": "IOS"
+  },
+  "data": [
+    {
+      "filter": "01-welcome",
+      "keyword": {
+        "color": "#5856D6"
+      }
+    },
+    {
+      "filter": "02-conversation",
+      "keyword": {
+        "color": "#34C759"
+      }
+    },
+    {
+      "filter": "03-tools",
+      "keyword": {
+        "color": "#FF9500"
+      }
+    },
+    {
+      "filter": "04-settings",
+      "keyword": {
+        "color": "#007AFF"
+      }
+    },
+    {
+      "filter": "Mac",
+      "background": "./backgrounds/mac_background.png",
+      "title": {
+        "color": "#FFFFFF"
+      },
+      "offset": {
+        "offset": "+0+400",
+        "titleHeight": 300
+      }
+    }
+  ]
+}
+
