@@ -32,14 +32,15 @@ enum DemoData {
     }
 
     /// Demo context stats for the context visualizer screenshot
+    /// Uses TokenBudget.maxHistoryTokens (1996) for accuracy
     static let demoContextStats = ContextStats(
-        currentTokens: 1847,
-        maxTokens: 2296,
+        currentTokens: 1597,
+        maxTokens: TokenBudget.maxHistoryTokens,
         usagePercent: 0.80,
         systemTokens: 300,
-        userTokens: 520,
-        assistantTokens: 927,
-        toolTokens: 100,
+        userTokens: 450,
+        assistantTokens: 1000,
+        toolTokens: 147,
         messageCount: 8,
         trimmedCount: 0
     )

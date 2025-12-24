@@ -94,26 +94,6 @@ public struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        ToolSettingsView()
-                            .environmentObject(appState)
-                    } label: {
-                        HStack {
-                            Image(systemName: "wrench.and.screwdriver")
-                                .foregroundStyle(ClarissaTheme.purple)
-                            Text("Configure Tools")
-                            Spacer()
-                            Text("\(ToolSettings.shared.enabledCount) enabled")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("Tools")
-                } footer: {
-                    Text("Configure which tools are available to the assistant.")
-                }
-
-                Section {
-                    NavigationLink {
                         MemoryListView(memories: $memories)
                     } label: {
                         HStack {

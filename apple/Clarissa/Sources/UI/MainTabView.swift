@@ -85,6 +85,9 @@ public struct MainTabView: View {
             }
         }
         #if os(iOS)
+        // Floating liquid glass tab bar (iOS 26 default)
+        // Tab bar collapses on scroll and floats above content
+        // Note: When keyboard is visible, swipe down on keyboard to dismiss to access tab bar
         .tabBarMinimizeBehavior(.onScrollDown)
         #endif
         .tint(ClarissaTheme.purple)
@@ -276,8 +279,12 @@ enum ClarissaTab: Hashable {
 @available(iOS 26.0, macOS 26.0, *)
 struct ChatTabContent: View {
     @ObservedObject var viewModel: ChatViewModel
+    @EnvironmentObject var appState: AppState
     @State private var showContextDetails = false
     @State private var showShareSheet = false
+    @State private var showHistorySheet = false
+    @State private var showSettingsSheet = false
+    @State private var showToolsSheet = false
     @State private var exportedText = ""
     @Namespace private var chatNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -292,11 +299,11 @@ struct ChatTabContent: View {
                 .toolbar {
                     #if os(iOS)
                     ToolbarItem(placement: .topBarLeading) {
-                        contextIndicator
+                        leadingToolbarItems
                     }
                     #else
                     ToolbarItem(placement: .navigation) {
-                        contextIndicator
+                        leadingToolbarItems
                     }
                     #endif
 
@@ -306,11 +313,11 @@ struct ChatTabContent: View {
 
                     #if os(iOS)
                     ToolbarItem(placement: .topBarTrailing) {
-                        toolbarButtons
+                        trailingToolbarItems
                     }
                     #else
                     ToolbarItem(placement: .primaryAction) {
-                        toolbarButtons
+                        trailingToolbarItems
                     }
                     #endif
                 }
@@ -322,6 +329,28 @@ struct ChatTabContent: View {
                 #if os(iOS)
                 .sheet(isPresented: $showShareSheet) {
                     ShareSheet(items: [exportedText])
+                }
+                .sheet(isPresented: $showHistorySheet) {
+                    SessionHistoryView(viewModel: viewModel) {
+                        showHistorySheet = false
+                    }
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
+                }
+                .sheet(isPresented: $showSettingsSheet) {
+                    SettingsView(onProviderChange: {
+                        viewModel.refreshProvider()
+                    })
+                    .presentationDetents([.large])
+                    .scrollContentBackground(.hidden)
+                }
+                .sheet(isPresented: $showToolsSheet) {
+                    ToolSettingsView {
+                        showToolsSheet = false
+                    }
+                    .environmentObject(appState)
+                    .presentationDetents([.medium, .large])
+                    .scrollContentBackground(.hidden)
                 }
                 #endif
                 #if os(macOS)
@@ -373,54 +402,83 @@ struct ChatTabContent: View {
         }
     }
 
-    private var toolbarButtons: some View {
-        GlassEffectContainer(spacing: 20) {
-            HStack(spacing: 12) {
-                // Share/Export button - only show when there are messages
-                if !viewModel.messages.isEmpty {
-                    Button {
-                        HapticManager.shared.lightTap()
-                        exportConversation()
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.title3)
-                    }
-                    .glassEffect(reduceMotion ? .regular : .regular.interactive(), in: .circle)
-                    .glassEffectID("export", in: chatNamespace)
-                    .accessibilityLabel("Export conversation")
-                    .accessibilityHint("Double-tap to share or copy this conversation")
-                }
+    // MARK: - Leading Toolbar (Context Indicator)
+
+    @ViewBuilder
+    private var leadingToolbarItems: some View {
+        contextIndicator
+    }
+
+    // MARK: - Trailing Toolbar (Overflow Menu)
+
+    private var trailingToolbarItems: some View {
+        Menu {
+            // New conversation
+            Button {
+                HapticManager.shared.lightTap()
+                viewModel.requestNewSession()
+            } label: {
+                Label("New Chat", systemImage: "plus.circle")
+            }
+
+            // Voice mode toggle
+            Button {
+                HapticManager.shared.mediumTap()
+                Task { await viewModel.toggleVoiceMode() }
+            } label: {
+                Label(
+                    viewModel.isVoiceModeActive ? "Exit Voice Mode" : "Voice Mode",
+                    systemImage: viewModel.isVoiceModeActive ? "waveform.circle.fill" : "waveform.circle"
+                )
+            }
+
+            Divider()
+
+            // History
+            #if os(iOS)
+            Button {
+                HapticManager.shared.lightTap()
+                showHistorySheet = true
+            } label: {
+                Label("History", systemImage: "clock.arrow.circlepath")
+            }
+
+            // Tools
+            Button {
+                HapticManager.shared.lightTap()
+                showToolsSheet = true
+            } label: {
+                Label("Tools", systemImage: "wrench.and.screwdriver")
+            }
+
+            // Settings
+            Button {
+                HapticManager.shared.lightTap()
+                showSettingsSheet = true
+            } label: {
+                Label("Settings", systemImage: "gear")
+            }
+            #endif
+
+            // Share/Export - only when there are messages
+            if !viewModel.messages.isEmpty {
+                Divider()
 
                 Button {
                     HapticManager.shared.lightTap()
-                    viewModel.requestNewSession()
+                    exportConversation()
                 } label: {
-                    Image(systemName: "plus.circle")
-                        .font(.title3)
+                    Label("Share Conversation", systemImage: "square.and.arrow.up.circle")
                 }
-                .glassEffect(reduceMotion ? .regular : .regular.interactive(), in: .circle)
-                .glassEffectID("newSession", in: chatNamespace)
-                .accessibilityLabel("New conversation")
-                .accessibilityHint("Double-tap to start a new conversation")
-
-                Button {
-                    HapticManager.shared.mediumTap()
-                    Task { await viewModel.toggleVoiceMode() }
-                } label: {
-                    Image(systemName: viewModel.isVoiceModeActive ? "waveform.circle.fill" : "waveform.circle")
-                        .font(.title3)
-                        .symbolEffect(.bounce, value: viewModel.isVoiceModeActive)
-                }
-                .glassEffect(
-                    reduceMotion
-                        ? .regular.tint(viewModel.isVoiceModeActive ? ClarissaTheme.pink : nil)
-                        : .regular.tint(viewModel.isVoiceModeActive ? ClarissaTheme.pink : nil).interactive(),
-                    in: .circle
-                )
-                .glassEffectID("voiceMode", in: chatNamespace)
-                .accessibilityLabel(viewModel.isVoiceModeActive ? "Exit voice mode" : "Enter voice mode")
             }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
         }
+        .glassEffect(reduceMotion ? .regular : .regular.interactive(), in: .circle)
+        .glassEffectID("overflow", in: chatNamespace)
+        .accessibilityLabel("More options")
+        .accessibilityHint("Double-tap for new chat, voice mode, history, tools, settings, and share")
     }
 }
 

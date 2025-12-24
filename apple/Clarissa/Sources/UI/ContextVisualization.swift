@@ -5,8 +5,6 @@ struct ContextIndicatorView: View {
     let stats: ContextStats
     let onTap: () -> Void
 
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
     private var gaugeColor: Color {
         if stats.isCritical {
             return .red
@@ -70,6 +68,7 @@ struct ContextIndicatorView: View {
                 )
                 .frame(width: 24, height: 24)
                 .rotationEffect(.degrees(-90))
+                .animation(.easeOut(duration: 0.3), value: stats.usagePercent)
 
             // Percentage text (only show when significant)
             if stats.usagePercent > 0.1 {
@@ -77,6 +76,8 @@ struct ContextIndicatorView: View {
                     .font(.caption2.weight(.bold))
                     .minimumScaleFactor(0.5)
                     .foregroundStyle(gaugeColor)
+                    .contentTransition(.numericText())
+                    .animation(.easeOut(duration: 0.3), value: stats.usagePercent)
             }
         }
     }
@@ -176,11 +177,19 @@ struct ContextDetailSheet: View {
         }
     }
     
+    /// Accessibility description for the breakdown bar
+    private var breakdownAccessibilityLabel: String {
+        let userPercent = stats.currentTokens > 0 ? Int(Double(stats.userTokens) / Double(stats.currentTokens) * 100) : 0
+        let assistantPercent = stats.currentTokens > 0 ? Int(Double(stats.assistantTokens) / Double(stats.currentTokens) * 100) : 0
+        let toolPercent = stats.currentTokens > 0 ? Int(Double(stats.toolTokens) / Double(stats.currentTokens) * 100) : 0
+        return "Token breakdown: You \(stats.userTokens) tokens (\(userPercent)%), Clarissa \(stats.assistantTokens) tokens (\(assistantPercent)%), Tools \(stats.toolTokens) tokens (\(toolPercent)%)"
+    }
+
     private var tokenBreakdown: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Breakdown")
                 .font(.headline)
-            
+
             // Stacked bar
             GeometryReader { geo in
                 HStack(spacing: 2) {
@@ -193,6 +202,8 @@ struct ContextDetailSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .background(Color.gray.opacity(0.1))
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(breakdownAccessibilityLabel)
 
             // Legend
             HStack(spacing: 16) {
@@ -201,6 +212,7 @@ struct ContextDetailSheet: View {
                 legendItem(color: ClarissaTheme.cyan, label: "Tools", tokens: stats.toolTokens)
             }
             .font(.caption)
+            .accessibilityHidden(true) // Already covered by breakdown bar label
         }
         .padding()
         .background(Color.gray.opacity(0.05))
@@ -241,7 +253,20 @@ struct ContextDetailSheet: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if stats.isNearLimit {
+            // Critical warning (>95%)
+            if stats.isCritical {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .foregroundStyle(.red)
+                    Text("Context is full. Start a new session to continue effectively.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(Color.red.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else if stats.isNearLimit {
+                // Near limit warning (>80%)
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -254,11 +279,25 @@ struct ContextDetailSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
-            // Stats summary
+            // Trimmed messages notice
+            if stats.trimmedCount > 0 {
+                HStack(spacing: 8) {
+                    Image(systemName: "scissors")
+                        .foregroundStyle(.secondary)
+                    Text("\(stats.trimmedCount) older message\(stats.trimmedCount == 1 ? "" : "s") removed to free space.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            // Stats summary (messageCount - 1 to exclude system message)
             HStack {
-                statItem(value: "\(stats.messageCount)", label: "Messages")
+                statItem(value: "\(max(0, stats.messageCount - 1))", label: "Messages")
                 Divider().frame(height: 30)
-                statItem(value: "\(stats.maxTokens)", label: "Max Tokens")
+                statItem(value: "\(stats.maxTokens.formatted())", label: "Max Tokens")
                 Divider().frame(height: 30)
                 statItem(value: "\(stats.systemTokens)", label: "System")
             }
@@ -287,12 +326,12 @@ struct ContextDetailSheet: View {
         ContextIndicatorView(stats: .empty, onTap: {})
         ContextIndicatorView(
             stats: ContextStats(
-                currentTokens: 500,
-                maxTokens: 2296,
+                currentTokens: 439,
+                maxTokens: TokenBudget.maxHistoryTokens,
                 usagePercent: 0.22,
                 systemTokens: 300,
-                userTokens: 200,
-                assistantTokens: 250,
+                userTokens: 150,
+                assistantTokens: 239,
                 toolTokens: 50,
                 messageCount: 6,
                 trimmedCount: 0
@@ -301,12 +340,12 @@ struct ContextDetailSheet: View {
         )
         ContextIndicatorView(
             stats: ContextStats(
-                currentTokens: 1900,
-                maxTokens: 2296,
+                currentTokens: 1657,
+                maxTokens: TokenBudget.maxHistoryTokens,
                 usagePercent: 0.83,
                 systemTokens: 300,
-                userTokens: 600,
-                assistantTokens: 1100,
+                userTokens: 500,
+                assistantTokens: 957,
                 toolTokens: 200,
                 messageCount: 12,
                 trimmedCount: 2
@@ -320,12 +359,12 @@ struct ContextDetailSheet: View {
 #Preview("Detail Sheet") {
     ContextDetailSheet(
         stats: ContextStats(
-            currentTokens: 1200,
-            maxTokens: 2296,
+            currentTokens: 1038,
+            maxTokens: TokenBudget.maxHistoryTokens,
             usagePercent: 0.52,
             systemTokens: 300,
-            userTokens: 400,
-            assistantTokens: 650,
+            userTokens: 350,
+            assistantTokens: 538,
             toolTokens: 150,
             messageCount: 8,
             trimmedCount: 0

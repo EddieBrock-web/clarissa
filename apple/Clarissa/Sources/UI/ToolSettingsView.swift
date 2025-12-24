@@ -1,42 +1,123 @@
 import SwiftUI
 
-/// View for configuring which tools are enabled
+/// Standalone view for managing tools - accessible from overflow menu
 struct ToolSettingsView: View {
     @ObservedObject private var settings = ToolSettings.shared
     @EnvironmentObject var appState: AppState
-    
+    let onDismiss: (() -> Void)?
+
+    init(onDismiss: (() -> Void)? = nil) {
+        self.onDismiss = onDismiss
+    }
+
     private var isFoundationModels: Bool {
         appState.selectedProvider == .foundationModels
     }
-    
+
     var body: some View {
-        List {
-            Section {
-                ForEach(settings.allTools) { tool in
-                    ToolRow(
-                        tool: tool,
-                        isAtLimit: isFoundationModels && settings.isAtFoundationModelsLimit,
-                        onToggle: { settings.toggleTool(tool.id) }
-                    )
+        NavigationStack {
+            List {
+                // Built-in tools section
+                Section {
+                    ForEach(settings.allTools) { tool in
+                        ToolRow(
+                            tool: tool,
+                            isAtLimit: isFoundationModels && settings.isAtFoundationModelsLimit,
+                            onToggle: { settings.toggleTool(tool.id) }
+                        )
+                    }
+                } header: {
+                    if isFoundationModels {
+                        Text("Enabled: \(settings.enabledCount)/\(maxToolsForFoundationModels)")
+                    } else {
+                        Text("Built-in Tools")
+                    }
+                } footer: {
+                    if isFoundationModels {
+                        Text("Apple Intelligence works best with \(maxToolsForFoundationModels) or fewer tools.")
+                    } else {
+                        Text("Select which tools the assistant can use.")
+                    }
                 }
-            } header: {
-                if isFoundationModels {
-                    Text("Enabled: \(settings.enabledCount)/\(maxToolsForFoundationModels)")
-                } else {
-                    Text("Available Tools")
-                }
-            } footer: {
-                if isFoundationModels {
-                    Text("Apple Intelligence works best with \(maxToolsForFoundationModels) or fewer tools. Disable unused tools to improve reliability.")
-                } else {
-                    Text("Select which tools the assistant can use.")
+
+                // Custom tools section
+                Section {
+                    customToolsComingSoon
+                } header: {
+                    Text("Custom Tools")
                 }
             }
+            .navigationTitle("Tools")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if let onDismiss = onDismiss {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        toolsDoneButton(onDismiss: onDismiss)
+                    }
+                }
+            }
+            #else
+            .toolbar {
+                if let onDismiss = onDismiss {
+                    ToolbarItem(placement: .confirmationAction) {
+                        toolsDoneButton(onDismiss: onDismiss)
+                    }
+                }
+            }
+            #endif
         }
-        .navigationTitle("Tools")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .tint(ClarissaTheme.purple)
+    }
+
+    @ViewBuilder
+    private func toolsDoneButton(onDismiss: @escaping () -> Void) -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            Button("Done") {
+                onDismiss()
+            }
+            .buttonStyle(.glassProminent)
+            .tint(ClarissaTheme.purple)
+        } else {
+            Button("Done") {
+                onDismiss()
+            }
+            .foregroundStyle(ClarissaTheme.purple)
+        }
+    }
+
+    private var customToolsComingSoon: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "plus.circle.dashed")
+                    .font(.title2)
+                    .foregroundStyle(ClarissaTheme.purple.opacity(0.6))
+                    .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add Custom Tool")
+                        .foregroundStyle(.primary)
+                    Text("Define your own tools with custom actions")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.caption)
+                Text("Coming Soon")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(ClarissaTheme.purple)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(ClarissaTheme.purple.opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -102,9 +183,7 @@ private struct ToolRow: View {
 }
 
 #Preview {
-    NavigationStack {
-        ToolSettingsView()
-            .environmentObject(AppState())
-    }
+    ToolSettingsView()
+        .environmentObject(AppState())
 }
 

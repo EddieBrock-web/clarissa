@@ -317,7 +317,7 @@ struct ChatView: View {
             Image(systemName: viewModel.isRecording ? "waveform" : "mic")
                 .font(.title2)
                 .frame(width: 44, height: 44)
-                .symbolEffect(.variableColor.iterative, options: .repeating, value: viewModel.isRecording)
+                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: viewModel.isRecording)
         }
         .glassEffect(
             reduceMotion
@@ -390,6 +390,9 @@ struct MessageBubble: View {
 
     @State private var showCopied = false
     @State private var isHovered = false
+    #if os(iOS)
+    @State private var showShareSheet = false
+    #endif
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Max width for message bubbles on larger screens (iPad/Mac)
@@ -426,7 +429,13 @@ struct MessageBubble: View {
                         #endif
                         .contextMenu {
                             copyButton
+                            shareButton
                         }
+                        #if os(iOS)
+                        .sheet(isPresented: $showShareSheet) {
+                            ActivityViewController(activityItems: [message.content])
+                        }
+                        #endif
                         .accessibilityLabel("You said: \(message.content)")
                 } else {
                     messageContent
@@ -447,6 +456,7 @@ struct MessageBubble: View {
                         #endif
                         .contextMenu {
                             copyButton
+                            shareButton
                             speakButton
                             if let onRetry = onRetry {
                                 Button {
@@ -456,6 +466,11 @@ struct MessageBubble: View {
                                 }
                             }
                         }
+                        #if os(iOS)
+                        .sheet(isPresented: $showShareSheet) {
+                            ActivityViewController(activityItems: [message.content])
+                        }
+                        #endif
                         .accessibilityLabel("Clarissa said: \(message.content)")
                 }
 
@@ -497,6 +512,23 @@ struct MessageBubble: View {
             copyToClipboard()
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
+        }
+    }
+
+    private var shareButton: some View {
+        Button {
+            #if os(iOS)
+            HapticManager.shared.lightTap()
+            showShareSheet = true
+            #elseif os(macOS)
+            // On macOS, use the share picker
+            let picker = NSSharingServicePicker(items: [message.content])
+            if let contentView = NSApp.keyWindow?.contentView {
+                picker.show(relativeTo: .zero, of: contentView, preferredEdge: .minY)
+            }
+            #endif
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up.circle")
         }
     }
 
@@ -1250,7 +1282,23 @@ struct VoiceModeIndicator: View {
     }
 }
 
+// MARK: - Activity View Controller for iOS Share
+
+#if os(iOS)
+import UIKit
+
+struct ActivityViewController: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    var applicationActivities: [UIActivity]? = nil
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+#endif
+
 #Preview {
     ChatView(viewModel: ChatViewModel())
 }
-
